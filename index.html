@@ -1,0 +1,1658 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#171329">
+<meta name="description" content="Sterrenwacht: een roguelite torenverdediging in de browser.">
+<style>
+/* Base reset (mirrors the artifact host): safe-area padding for phones, no body margin. */
+html{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+<title>Sterrenwacht</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus+SC&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one-screen game. HUD strip on top, canvas field fills the rest, overlays float over the field. Deliberately single dark theme (night sky). */
+:root{
+  --night:#0d0b1a; --panel:#171329; --panel-2:#211c3a; --line:#2f2950;
+  --ink:#ebe6f6; --muted:#9a92b8;
+  --gold:#e8c170; --void:#b26cf0; --tech:#5fd3e0; --blood:#e2566b;
+  --display:"Marcellus SC", "Cormorant SC", Georgia, serif;
+  --body:"Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--night);color:var(--ink);font-family:var(--body);font-size:15px;overflow:hidden;-webkit-user-select:none;user-select:none}
+#app{height:100%;display:flex;flex-direction:column}
+#hud{display:flex;align-items:center;gap:10px;padding-block:8px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));background:var(--panel);border-bottom:1px solid var(--line)}
+.wave{font-family:var(--display);font-size:17px;color:var(--gold);white-space:nowrap;min-width:64px}
+.bars{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.bar{position:relative;height:10px;border-radius:5px;background:var(--panel-2);overflow:hidden}
+.bar i{position:absolute;inset:0 auto 0 0;background:var(--blood);transition:width .15s}
+.bar i.sh{background:var(--tech);opacity:.75}
+.bar.nova{height:6px}
+.bar.nova i{background:var(--gold)}
+.meta-row{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.hbtn{font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--panel-2);border:1px solid var(--line);border-radius:8px;height:34px;min-width:40px;padding:0 8px;cursor:pointer}
+.hbtn:focus-visible,.btn:focus-visible,.card:focus-visible,.cls:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+#field{position:relative;flex:1;min-height:0}
+#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+#ov{position:absolute;inset:0;overflow-y:auto;background:rgba(9,7,20,.82);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.wrap{max-width:520px;margin:0 auto;padding-block:22px 28px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));display:flex;flex-direction:column;gap:14px}
+h1{font-family:var(--display);font-weight:400;font-size:40px;line-height:1;margin:0;color:var(--gold);letter-spacing:.04em;text-wrap:balance}
+h2{font-family:var(--display);font-weight:400;font-size:26px;margin:0;color:var(--gold);text-wrap:balance}
+.sub{color:var(--muted);margin:0;line-height:1.45}
+.label{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.stats{display:flex;gap:18px;font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
+.stats b{color:var(--gold);font-weight:500}
+.btn{font-family:var(--body);font-weight:600;font-size:16px;border-radius:10px;padding:12px 16px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);cursor:pointer}
+.btn.primary{background:var(--gold);color:#1a1405;border-color:var(--gold)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.danger{background:var(--blood);border-color:var(--blood);color:#1a0509}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row .btn{flex:1}
+.classes,.cards,.tree{display:flex;flex-direction:column;gap:8px}
+.cls,.card{text-align:left;display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:12px 14px;border-radius:10px;background:var(--panel);border:1px solid var(--line);color:var(--ink);cursor:pointer;font:inherit}
+.cls[aria-pressed="true"]{border-color:var(--gold);background:var(--panel-2)}
+.cls:disabled{opacity:.5;cursor:default}
+.cls strong,.card strong{font-weight:600;font-size:16px}
+.cls span,.card span{color:var(--muted);font-size:14px;grid-column:1/-1}
+.cls em,.card em{font-style:normal;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);align-self:center}
+.card{border-left-width:4px}
+.card.r0{border-left-color:var(--muted)}
+.card.r1{border-left-color:var(--tech)}
+.card.r1 em{color:var(--tech)}
+.card.r2{border-left-color:var(--void);background:linear-gradient(90deg,rgba(178,108,240,.12),var(--panel) 60%)}
+.card.r2 em{color:var(--void)}
+.card.r3{border-left-color:var(--gold);background:linear-gradient(90deg,rgba(232,193,112,.16),var(--panel) 65%)}
+.card.r3 em,.card.r3 strong{color:var(--gold)}
+.card.r4{border-color:var(--blood);border-left-width:4px;background:linear-gradient(90deg,rgba(226,86,107,.2),rgba(178,108,240,.12) 55%,var(--panel))}
+.card.r4 em,.card.r4 strong{color:var(--blood)}
+.node{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;padding:10px 12px;border-radius:10px;background:var(--panel);border:1px solid var(--line)}
+.node strong{font-weight:600}
+.node span{color:var(--muted);font-size:14px}
+.pips{display:flex;flex-wrap:wrap;gap:4px;grid-column:1/2}
+.pips i{width:14px;height:5px;border-radius:2px;background:var(--panel-2);border:1px solid var(--line)}
+.pips i.on{background:var(--gold);border-color:var(--gold)}
+.node .btn{grid-row:1/4;grid-column:2;padding:8px 12px;font-size:14px;font-family:var(--mono);font-weight:500;white-space:nowrap}
+.build{display:flex;flex-wrap:wrap;gap:6px}
+.build span{font-size:13px;padding:3px 8px;border-radius:999px;background:var(--panel-2);border:1px solid var(--line);color:var(--muted)}
+.note{color:var(--tech);font-size:14px;margin:0}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:1px;margin:0;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.statgrid div{background:var(--panel);padding:8px 10px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.statgrid dt{font-size:12px;color:var(--muted)}
+.statgrid dd{margin:0;font-family:var(--mono);font-size:14px;color:var(--ink);font-variant-numeric:tabular-nums}
+.version{margin:8px 0 0;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.08em}
+.rank{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:6px 10px;padding:10px 12px;border-radius:10px;background:var(--panel);border:1px solid var(--line)}
+.rank strong{font-family:var(--display);font-weight:400;font-size:20px;color:var(--gold);text-align:center}
+.rank span{grid-column:1/-1;color:var(--muted);font-size:14px}
+.hbtn:disabled{opacity:.35;cursor:default}
+.card.combo{border-left-color:var(--tech);background:linear-gradient(90deg,rgba(95,211,224,.16),var(--panel) 65%)}
+.card.combo em,.card.combo strong{color:var(--tech)}
+.card.cursed{border-color:#5a1f2e;border-left-color:var(--blood);background:linear-gradient(90deg,rgba(90,20,40,.55),var(--panel) 70%)}
+.card.cursed em{color:var(--blood)}
+.toggles{display:flex;flex-direction:column;gap:8px}
+.coll{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+.coll div{padding:8px 10px;border-radius:8px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--muted);min-width:0}
+.coll strong{display:block;font-size:13px;font-weight:600}
+.coll span{display:block;font-size:12px;color:var(--muted);margin-top:2px}
+.coll .unseen strong{color:var(--muted)}
+.coll .t1{border-left-color:var(--tech)}
+.coll .t2{border-left-color:var(--void)}
+.coll .t3{border-left-color:var(--gold)}
+.coll .t4,.coll .tx{border-left-color:var(--blood)}
+.coll .tc{border-left-color:var(--tech);border-left-style:double;border-left-width:4px}
+.achs{display:flex;flex-direction:column;gap:6px}
+.achs div{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:10px 12px;border-radius:10px;background:var(--panel);border:1px solid var(--line)}
+.achs div.done{border-color:var(--gold)}
+.achs strong{font-weight:600}
+.achs span{grid-column:1/-1;color:var(--muted);font-size:14px}
+.achs em{font-style:normal;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);align-self:center}
+.achs .done em{color:var(--gold)}
+@media (prefers-reduced-motion: reduce){.bar i{transition:none}}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="hud">
+    <div class="wave" id="hWave">Golf 1</div>
+    <div class="bars">
+      <div class="bar" aria-label="Leven"><i id="hHp" style="width:100%"></i><i class="sh" id="hSh" style="width:0%"></i></div>
+      <div class="bar nova" aria-label="Nova"><i id="hNova" style="width:100%"></i></div>
+      <div class="meta-row"><span id="hHpTxt">100 / 100</span><span id="hNovaTxt">Nova gereed</span></div>
+    </div>
+    <button class="hbtn" id="bSpeed" type="button" aria-label="Snelheid">1×</button>
+    <button class="hbtn" id="bPause" type="button" aria-label="Pauze">II</button>
+  </div>
+  <div id="field">
+    <canvas id="cv"></canvas>
+    <div id="ov"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- Persistence (per-viewer, optional) ---------- */
+const SAVE_KEY = 'sterrenwacht.v1';
+// Matches the published artifact version; bump on every publish.
+const GAME_VERSION = 35;
+const FINAL_WAVE = 30;
+const MAX_RANK = 10;
+// Bosses scale slower than regular foes: at 1.16/wave a wave-20 boss had ~4400 hp and was only in range for ~8 s.
+const BOSS_GROWTH = 1.12;
+const BOSS_HIT_INTERVAL = 1;
+const BOSS_HIT_FRACTION = 0.3;
+const ORB_BASE_HP = 30;
+const ORB_RESPAWN = 4;
+// Orb wear on top of enemy damage, which already grows per wave and rank.
+const ORB_WEAR_PER_WAVE = 0.02;
+// Enemy hit damage grows per wave and per rank; before, a maxed tower stopped taking meaningful damage at any rank.
+const FOE_DMG_PER_WAVE = 0.03;
+const FOE_DMG_PER_RANK = 0.15;
+/** Difficulty multipliers per Sterrenrang (0 = base game). Pure function of the rank. */
+const rankMods = r => ({ hp: 1 + 0.3 * r, sp: 1 + 0.06 * r, count: 1 + 0.12 * r, shards: 1 + 0.15 * r });
+const BULWARK_BOLT = 0.25;
+// Each further foe a piercing bolt passes through takes 15% less damage.
+const PIERCE_FALLOFF = 0.85;
+// Vampier healing is capped per second, so it cannot outscale late-game damage.
+const VAMP_CAP = 0.05;
+const CURSE_CHANCE = 0.07;
+const ACH_REWARD = 75;
+const DEVOUR_CAP = 3;
+const objOf = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+const save = loadSave();
+function loadSave() {
+  const fresh = { shards: 0, best: 0, runs: 0, meta: {}, cls: 'mage', rank: 0, sel: 0, ach: {}, seen: {}, bosses: {}, bestEndless: 0, modsOn: false, endlessOn: false };
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return fresh;
+    const d = JSON.parse(raw);
+    return {
+      shards: Math.max(0, Number(d.shards) || 0),
+      best: Math.max(0, Number(d.best) || 0),
+      runs: Math.max(0, Number(d.runs) || 0),
+      meta: (d.meta && typeof d.meta === 'object') ? d.meta : {},
+      cls: typeof d.cls === 'string' ? d.cls : 'mage',
+      rank: Math.min(MAX_RANK, Math.max(0, Math.floor(Number(d.rank) || 0))),
+      sel: Math.min(MAX_RANK, Math.max(0, Math.floor(Number(d.sel) || 0))),
+      ach: objOf(d.ach), seen: objOf(d.seen), bosses: objOf(d.bosses),
+      bestEndless: Math.max(0, Number(d.bestEndless) || 0),
+      modsOn: d.modsOn === true, endlessOn: d.endlessOn === true
+    };
+  } catch (e) { return fresh; }
+}
+// 'Dubbele bout' was renamed; keep it marked as discovered in the collection.
+if (save.seen['Dubbele bout']) save.seen['Extra bout'] = true;
+function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
+
+/* ---------- Definitions ---------- */
+const META = [
+  // gate: [[levels, rank], ...] — how many levels unlock at which Sterrenrang, in order.
+  { id: 'hp',       n: 'Versterkte fundering', d: '+15 leven bij de start',                    max: 15, cost: 8,   gate: [[10, 0], [5, 4]] },
+  { id: 'dmg',      n: 'Gegraveerde runen',    d: '+10% schade',                               max: 15, cost: 10,  gate: [[10, 0], [5, 5]] },
+  { id: 'rate',     n: 'Snelle ritus',         d: '+8% vuursnelheid',                          max: 15, cost: 10,  gate: [[10, 0], [5, 5]] },
+  { id: 'novaunlock', n: 'Nova',               d: 'Ontgrendel de Nova: een explosie die vanzelf op de grootste groep vijanden afgaat', max: 1, cost: 40 },
+  { id: 'nova',     n: 'Novakern',             d: 'Nova laadt 1,5 s sneller',                  max: 3,  cost: 20,  needs: 'novaunlock' },
+  { id: 'novapow',  n: 'Novakracht',           d: '+10% Nova-schade',                          max: 10, cost: 30,  needs: 'novaunlock', gate: [[5, 0], [5, 4]] },
+  { id: 'novarad',  n: 'Novagolf',             d: '+10% Nova-bereik',                          max: 5,  cost: 40,  needs: 'novaunlock', gate: [[5, 2]] },
+  { id: 'crit',     n: 'Scherpziende lens',    d: '+3% kans op een kritieke treffer',          max: 8,  cost: 15,  gate: [[5, 0], [3, 6]] },
+  { id: 'armor',    n: 'Kristalpantser',       d: '−5% schade aan de spits',                   max: 5,  cost: 30,  gate: [[3, 0], [2, 3]] },
+  { id: 'shard',    n: 'Etherzuiger',          d: '+10% ethersplinters per run',               max: 5,  cost: 25 },
+  { id: 'start',    n: 'Voorspoedig begin',    d: 'Kies een kaart vóór golf 1',                max: 1,  cost: 30 },
+  { id: 'reroll',   n: 'Herschikking',         d: '+1 keer kaarten herschikken per run',       max: 3,  cost: 25,  gate: [[1, 0], [2, 2]] },
+  { id: 'orbstart', n: 'Gebonden ster',        d: 'Begin elke run met 1 etherbol',             max: 1,  cost: 100, gate: [[1, 1]] },
+  { id: 'revive',   n: 'Tweede adem',          d: 'Eén keer per run herrijzen met 40% leven',  max: 1,  cost: 300, gate: [[1, 1]] },
+  { id: 'luck',     n: 'Gunstig gesternte',    d: '+15% kans op zeldzamere kaarten',           max: 4,  cost: 40,  gate: [[2, 1], [2, 3]] },
+  { id: 'orbdur',   n: 'Geharde ether',        d: '+15% levenspunten voor etherbollen',        max: 8,  cost: 40,  gate: [[5, 1], [3, 6]] },
+  { id: 'choice',   n: 'Vierde visioen',       d: '4 kaarten per keuze in plaats van 3',       max: 1,  cost: 250, gate: [[1, 2]] },
+  { id: 'legend',   n: 'Legendarisch gesternte', d: '+25% kans op legendarische en unieke kaarten', max: 4, cost: 200, gate: [[1, 2], [1, 4], [1, 6], [1, 8]] },
+  { id: 'bosskill', n: 'Bazendoder',           d: '+10% schade tegen bazen',                   max: 5,  cost: 60,  gate: [[5, 3]] },
+  { id: 'orbpow',   n: 'Etherkernen',          d: '+10% schade door etherbollen',              max: 10, cost: 50,  gate: [[5, 4], [5, 7]] },
+  { id: 'start2',   n: 'Dubbele voorspoed',    d: 'Kies nog een kaart vóór golf 1',            max: 1,  cost: 500, gate: [[1, 5]] },
+  { id: 'regenbase', n: 'Levensbron',          d: '+0,5 leven per seconde herstel',            max: 5,  cost: 60,  gate: [[5, 6]] },
+  { id: 'start3',   n: 'Sterrengeboorte',      d: 'Kies een derde kaart vóór golf 1',          max: 1,  cost: 1500, gate: [[1, 8]] }
+];
+const lv = id => {
+  const def = META.find(m => m.id === id);
+  return Math.min(def.max, Math.max(0, Math.floor(Number(save.meta[id]) || 0)));
+};
+// Super-linear growth so later levels are a real investment instead of a quick top-up.
+const metaCost = m => Math.round(m.cost * Math.pow(lv(m.id) + 1, 1.5));
+/** Rank needed to buy the next level of a node, read from its gate list. */
+const metaLevelRank = m => {
+  let level = lv(m.id);
+  for (const [count, rank] of m.gate || []) {
+    if (level < count) return rank;
+    level -= count;
+  }
+  return 0;
+};
+
+const CLASSES = [
+  { id: 'mage',  n: 'Bezweerder',  d: 'Gebalanceerd. Bouten gaan door 1 extra vijand.', unlock: 0,  a: s => { s.pierce += 1; } },
+  { id: 'tech',  n: 'Technomant',  d: 'Start met 2 etherbollen. Bouten 20% zwakker.',    unlock: 6,  a: s => { s.orbs += 2; s.dmg *= 0.8; } },
+  { id: 'storm', n: 'Stormroeper', d: 'Bliksem springt 2× over. 15% trager vuren.',      unlock: 10, a: s => { s.chain += 2; s.rate *= 0.85; } },
+  // Bolts are weakened, so novaMul is raised further to land at a net +50% Nova damage.
+  { id: 'weaver', n: 'Sterrenwever', d: 'Nova laadt 40% sneller en doet +50% schade. Bouten 30% zwakker.', ach: 'nova15', a: s => { s.hasNova = true; s.novaCd *= 0.6; s.dmg *= 0.7; s.novaMul *= 2.15; } },
+  { id: 'keeper', n: 'Etherhoeder',  d: 'Geen bouten. Start met 4 etherbollen die 50% meer schade doen en sterker zijn.', ach: 'orbs6', a: s => { s.noBolts = true; s.orbs += 4; s.orbPow *= 1.5; s.orbDur *= 1.5; } },
+  { id: 'blood',  n: 'Bloedridder',  d: '2% levensroof (max. 5% leven per seconde). Max. leven −25%.', ach: 'heal1000', a: s => { s.vamp += 0.02; s.maxHp *= 0.75; } }
+];
+const classOpen = c => (c.ach ? !!save.ach[c.ach] : save.best >= c.unlock);
+
+const ACHIEVEMENTS = [
+  { id: 'win1',      n: 'Eerste dageraad',      d: 'Win een run.' },
+  { id: 'rank3',     n: 'Rijzende ster',        d: 'Bereik Sterrenrang 3.' },
+  { id: 'rank10',    n: 'Hemelvorst',           d: 'Bereik Sterrenrang 10.' },
+  { id: 'nova15',    n: 'Zonnestorm',           d: 'Vernietig 15 vijanden met één Nova.', unlocks: 'Sterrenwever' },
+  { id: 'orbs6',     n: 'Planetenstelsel',      d: 'Win een run met 6 of meer etherbollen.', unlocks: 'Etherhoeder' },
+  { id: 'heal1000',  n: 'Onverwoestbaar',       d: 'Herstel 1000 leven in één run.', unlocks: 'Bloedridder' },
+  { id: 'legend3',   n: 'Sterrenbeeld',         d: 'Kies 3 legendarische kaarten in één run.' },
+  { id: 'unique',    n: 'Eenmalig',             d: 'Kies een unieke kaart.' },
+  { id: 'combo',     n: 'Alchemist',            d: 'Ontdek een combokaart.' },
+  { id: 'curse3',    n: 'Vervloekt en gezegend', d: 'Win een run met 3 vervloekte kaarten.' },
+  { id: 'bosses',    n: 'Bazenjager',           d: 'Versla alle vier de baasvarianten.' },
+  { id: 'mods',      n: 'Wispelturige hemel',   d: 'Win een run met golfmodificaties aan.' },
+  { id: 'endless40', n: 'Voorbij de horizon',   d: 'Haal golf 40 in een oneindige run.' },
+  { id: 'collect',   n: 'Verzamelaar',          d: 'Ontdek 35 verschillende kaarten.' }
+];
+
+const RARITY = ['Gewoon', 'Zeldzaam', 'Episch', 'Legendarisch', 'Uniek'];
+/** Base odds per card slot for each tier, in percent. Tuned for ~30 picks per run: roughly half the offers hold something rarer than common. */
+const TIER_ODDS = [80, 14, 4.3, 1.2, 0.5];
+/** Effect strength per tier. A card's own base rarity counts as strength 1; each tier above it scales relative to that. */
+const TIER_POWER = [1, 1.6, 2.4];
+const pct = x => Math.round(x * 100) + '%';
+const num = x => (Math.round(x * 10) / 10).toString().replace('.', ',');
+// 2.4 / 1.6 is 1.4999… in floating point, so compare with margin.
+const cnt = k => (k > 1.4 ? 2 : 1);
+const CARDS = [
+  { n: 'Scherpere bouten',    r: 0, d: k => `+${pct(0.25 * k)} schade`, a: (s, k) => { s.dmg *= 1 + 0.25 * k; } },
+  { n: 'Snellere ritus',      r: 0, d: k => `+${pct(0.2 * k)} vuursnelheid`, a: (s, k) => { s.rate *= 1 + 0.2 * k; } },
+  { n: 'Verre blik',          r: 0, ok: s => s.range < 0.7, d: k => `+${pct(0.15 * k)} bereik`, a: (s, k) => { s.range = Math.min(0.75, s.range * (1 + 0.15 * k)); } },
+  { n: 'Versterkte spits',    r: 0, d: k => `+${Math.round(25 * k)} max. leven en volledig genezen`, a: (s, k) => { s.maxHp += Math.round(25 * k); s.hp = s.maxHp; } },
+  { n: 'Herstelrune',         r: 0, d: k => `+${num(1.5 * k)} leven per seconde`, a: (s, k) => { s.regen += 1.5 * k; } },
+  { n: 'Kritieke focus',      r: 0, ok: s => s.crit < 0.6, d: k => `+${pct(0.1 * k)} kans op een kritieke treffer`, a: (s, k) => { s.crit = Math.min(0.75, s.crit + 0.1 * k); } },
+  { n: 'Zielenoogst',         r: 0, d: k => `+${num(k)} leven per vernietigde vijand`, a: (s, k) => { s.leech += k; } },
+  { n: 'Tijdsveld',           r: 0, ok: s => s.slow < 0.48, d: k => `Vijanden in het veld ${pct(0.12 * k)} trager`, a: (s, k) => { s.slow = Math.min(0.6, s.slow + 0.12 * k); } },
+  { n: 'Krachtveld',          r: 0, d: k => `+${Math.round(20 * k)} schild dat zich vanzelf herstelt`, a: (s, k) => { s.maxShield += Math.round(20 * k); s.shield = s.maxShield; } },
+  { n: 'Snellere omloop',     r: 0, ok: s => s.orbs > 0 && s.orbSpd < 2.5, d: k => `Etherbollen draaien ${pct(0.3 * k)} sneller`, a: (s, k) => { s.orbSpd *= 1 + 0.3 * k; } },
+  { n: 'Zware kernen',        r: 0, ok: s => s.orbs > 0 && s.orbSize < 2.2, d: k => `Etherbollen ${pct(0.3 * k)} groter en +${pct(0.25 * k)} schade`, a: (s, k) => { s.orbSize *= 1 + 0.3 * k; s.orbPow *= 1 + 0.25 * k; } },
+  { n: 'Geharde kernen',      r: 0, ok: s => s.orbs > 0 && s.orbDur < 4, d: k => `Etherbollen +${pct(0.5 * k)} sterker en herstellen ${pct(0.08 * k)} per seconde`, a: (s, k) => { s.orbDur *= 1 + 0.5 * k; s.orbRegen += 0.08 * k; } },
+  { n: 'Extra bout',          r: 1, d: k => `+${cnt(k)} bout${cnt(k) > 1 ? 'en' : ''} per salvo`, a: (s, k) => { s.multishot += cnt(k); } },
+  { n: 'Doorboring',          r: 1, d: k => `Bouten gaan door ${cnt(k)} extra vijand${cnt(k) > 1 ? 'en' : ''}`, a: (s, k) => { s.pierce += cnt(k); } },
+  { n: 'Vernietigingskracht', r: 1, ok: s => s.crit >= 0.15, d: k => `Kritieke treffers doen +${pct(0.75 * k)} schade`, a: (s, k) => { s.critMul += 0.75 * k; } },
+  { n: 'Ketenbliksem',        r: 1, d: k => `Treffers springen over naar ${cnt(k)} extra vijand${cnt(k) > 1 ? 'en' : ''}`, a: (s, k) => { s.chain += cnt(k); } },
+  { n: 'Etherbol',            r: 1, d: k => `+${cnt(k)} bol${cnt(k) > 1 ? 'len' : ''} die om de toren cirkel${cnt(k) > 1 ? 'en' : 't'}`, a: (s, k) => { s.orbs += cnt(k); } },
+  { n: 'Gesmede kernen',      r: 1, ok: s => s.orbs > 0, d: k => `Etherbollen doen +${pct(0.75 * k)} schade`, a: (s, k) => { s.orbPow *= 1 + 0.75 * k; } },
+  { n: 'Zonnevonk',           r: 0, ok: s => s.hasNova, d: k => `Nova doet +${pct(0.2 * k)} schade`, a: (s, k) => { s.novaMul *= 1 + 0.2 * k; } },
+  { n: 'Wijde nova',          r: 0, ok: s => s.hasNova && s.novaRad < NOVA_RAD_CAP, d: k => `Nova-bereik +${pct(0.15 * k)}`, a: (s, k) => { s.novaRad = Math.min(NOVA_RAD_CAP, s.novaRad * (1 + 0.15 * k)); } },
+  { n: 'Nagloed',             r: 1, ok: s => s.hasNova && s.novaBurn < 0.3, d: k => `Nova laat 3 s een vuurveld achter dat elke seconde ${pct(0.12 * k)} van de Nova-schade doet`, a: (s, k) => { s.novaBurn += 0.12 * k; } },
+  { n: 'Ethernova',           r: 1, ok: s => s.hasNova && s.orbs > 0 && !s.novaOrb, d: () => 'De helft van je bolschade-bonussen geldt ook voor de Nova', a: s => { s.novaOrb = true; } },
+  { n: 'Nova-resonantie',     r: 1, ok: s => s.hasNova && s.novaCd > 4, d: k => `Nova ${num(2 * k)} s sneller geladen, +${pct(0.5 * k)} schade`, a: (s, k) => { s.novaCd = Math.max(3, s.novaCd - 2 * k); s.novaMul *= 1 + 0.5 * k; } },
+  { n: 'Ontploffende bouten', r: 2, d: () => 'Treffers ontploffen voor 50% extra schade', a: s => { s.explode += 0.5; } },
+  { n: 'Tweelingster',        r: 2, d: () => '+1 bout per salvo en +1 etherbol', a: s => { s.multishot += 1; s.orbs += 1; } },
+  { n: 'Overlading',          r: 2, ok: s => s.maxHp > 60, d: () => '+40% schade en vuursnelheid, −20 max. leven', a: s => { s.dmg *= 1.4; s.rate *= 1.4; s.maxHp -= 20; s.hp = Math.min(s.hp, s.maxHp); } },
+  // Etherhoeder-only cards: offered only to guardians without bolts.
+  { n: 'Ethergloed',          r: 0, ok: s => s.noBolts, d: k => `Etherbollen doen +${pct(0.25 * k)} schade`, a: (s, k) => { s.orbPow *= 1 + 0.25 * k; } },
+  { n: 'Wijde baan',          r: 0, ok: s => s.noBolts && s.orbRadius < 1.6, d: k => `De baan van je bollen wordt ${pct(0.15 * k)} groter`, a: (s, k) => { s.orbRadius *= 1 + 0.15 * k; } },
+  { n: 'Ethersplitsing',      r: 1, ok: s => s.noBolts && s.orbSplash < 0.8, d: k => `Bol-treffers raken ook vijanden vlakbij voor ${pct(0.4 * k)} van de schade`, a: (s, k) => { s.orbSplash += 0.4 * k; } },
+  { n: 'Etherkoor',           r: 1, ok: s => s.noBolts && s.orbCrit < 0.5, d: k => `Bol-treffers hebben ${pct(0.15 * k)} kans op een kritieke treffer`, a: (s, k) => { s.orbCrit += 0.15 * k; } },
+  { n: 'Bolstorm',            r: 2, ok: s => s.noBolts, d: () => '+3 etherbollen, maar alle bollen doen 15% minder schade', a: s => { s.orbs += 3; s.orbPow *= 0.85; } }
+];
+
+/* Legendary cards have their own effects and never scale. */
+const LEGENDS = [
+  { n: 'Supernova',      r: 3, ok: s => s.hasNova && s.novaRad < NOVA_RAD_CAP, d: () => 'Nova raakt 2× zo ver en laadt twee keer zo snel', a: s => { s.novaRad = Math.min(NOVA_RAD_CAP, s.novaRad * 2); s.novaCd = Math.max(2, s.novaCd / 2); } },
+  { n: 'Sterrenregen',   r: 3, ok: s => s.meteor === 0, d: () => 'Elke 4 s slaat een meteoor in op de taaiste vijand (15× schade)', a: s => { s.meteor = 4; } },
+  { n: 'Eeuwige kernen', r: 3, ok: s => s.orbs > 0 && s.orbRespawn > 1, d: () => 'Kapotte etherbollen vormen zich binnen 1 s opnieuw', a: s => { s.orbRespawn = 1; } },
+  { n: 'Kettingstorm',   r: 3, ok: s => s.chainMul < 0.8, d: () => 'Bliksem springt 3× extra over en doet 80% schade per sprong', a: s => { s.chain += 3; s.chainMul = 0.8; } },
+  { n: 'Vampierkristal', r: 3, ok: s => s.vamp < 0.06, d: () => '3% van alle schade die je doet geneest de spits (max. 5% leven per seconde)', a: s => { s.vamp += 0.03; } }
+];
+
+/* Unique cards: build-defining, each at most once per run. */
+const UNIQUES = [
+  { n: 'Spiegelspits', r: 4, d: () => 'Elk salvo vuurt twee keer zoveel bouten', a: s => { s.multishot *= 2; } },
+  { n: 'Tijdstop',     r: 4, d: () => 'Elke 15 s bevriest de tijd 2,5 s voor alle vijanden', a: s => { s.freezeEvery = 15; } },
+  { n: 'Godenbloed',   r: 4, d: () => 'Max. leven ×2 en na elke golf 50% herstel in plaats van 15%', a: s => { s.maxHp *= 2; s.hp = s.maxHp; s.fullHeal = true; } },
+  { n: 'Leegtevreter', r: 4, d: () => 'Elke vernietigde vijand geeft +0,1% schade deze run (max. +300%)', a: s => { s.devour = 0.001; } }
+];
+
+/* Combo cards appear once both required cards are in the build. */
+const COMBOS = [
+  { n: 'Stormbollen',    req: ['Ketenbliksem', 'Etherbol'],             d: () => 'Bol-treffers springen als bliksem over naar een vijand', a: s => { s.orbChain = true; } },
+  { n: 'Vuurregen',      req: ['Ontploffende bouten', 'Extra bout'],  d: () => 'Ontploffingen zijn 60% groter', a: s => { s.explodeRad *= 1.6; } },
+  { n: 'Bloedpact',      req: ['Zielenoogst', 'Herstelrune'],           d: () => 'Zielenoogst geneest dubbel, herstel ×1,5', a: s => { s.leech *= 2; s.regen *= 1.5; } },
+  { n: 'Sterrenkoor',    req: ['Nova-resonantie', 'Kritieke focus'], ok: s => s.hasNova,    d: () => 'De Nova kan een kritieke treffer zijn', a: s => { s.novaCrit = true; } },
+  { n: 'IJzeren wil',    req: ['Krachtveld', 'Versterkte spits'],       d: () => 'Je schild herstelt 3× zo snel', a: s => { s.shieldRegen *= 3; } },
+  { n: 'Scherpschutter', req: ['Verre blik', 'Doorboring'],             d: () => '+60% schade tegen vijanden aan de rand van je bereik', a: s => { s.sniper = true; } }
+].map(c => ({ ...c, r: 2, kind: 'combo' }));
+
+/* Cursed cards: strong, with a drawback. */
+const CURSED = [
+  { n: 'Bloedoffer',   d: () => '+60% schade, maar de spits verliest 1% van zijn max. leven per seconde. Dit kan je doden.', a: s => { s.dmg *= 1.6; s.drain += 0.01; } },
+  { n: 'Glazen kanon', ok: s => s.maxHp > 80, d: () => '+100% schade, maar max. leven −50%', a: s => { s.dmg *= 2; s.maxHp *= 0.5; s.hp = Math.min(s.hp, s.maxHp); } },
+  { n: 'Hebzucht',     d: () => '+50% splinters deze run, maar vijanden +20% leven', a: () => { run.shardMul *= 1.5; run.curseHp *= 1.2; } },
+  { n: 'Razernij',     d: () => '+60% vuursnelheid, maar bereik −25%', a: s => { s.rate *= 1.6; s.range *= 0.75; } },
+  { n: 'Leegtepact',   d: () => '+2 etherbollen, maar alle bollen 50% minder levenspunten', a: s => { s.orbs += 2; s.orbDur *= 0.5; repairOrbs(); } }
+].map(c => ({ ...c, r: 0, kind: 'cursed' }));
+
+/* Cards that only affect bolts; hidden for guardians without bolts. */
+const BOLT_CARDS = new Set(['Snellere ritus', 'Verre blik', 'Kritieke focus', 'Extra bout', 'Doorboring', 'Vernietigingskracht',
+  'Ketenbliksem', 'Ontploffende bouten', 'Kettingstorm', 'Spiegelspits', 'Razernij', 'Vuurregen', 'Scherpschutter']);
+
+const BOSSES = {
+  void:    { n: 'Leegtevorst', c: '#f0e6ff', d: 'De klassieke baas.' },
+  brood:   { n: 'Broedmoeder', c: '#e2566b', d: 'Werpt elke 3 s twee kleine vijanden af.' },
+  bulwark: { n: 'Bolwerk',     c: '#e8a35a', d: 'Schild naar de spits: bouten doen 25%.' },
+  eater:   { n: 'Ethervreter', c: '#5fd3e0', d: 'Sneller, en breekt elke bol die hem raakt.' }
+};
+const BOSS_ORDER = ['void', 'brood', 'bulwark', 'eater'];
+const bossFor = n => BOSS_ORDER[(Math.floor(n / 5) - 1) % BOSS_ORDER.length];
+
+const MODS = [
+  { n: 'Bloedmaan',    d: 'vijanden 40% sneller', sp: 1.4 },
+  { n: 'Ethernevel',   d: 'bollen ×2 schade, bouten −25%', orbMul: 2, boltMul: 0.75 },
+  { n: 'Zwerm',        d: 'dubbel zoveel vijanden, maar elke vijand heeft maar half zoveel leven', count: 2, hp: 0.5 },
+  { n: 'Reuzen',       d: 'half zoveel vijanden, maar elke vijand heeft 2,2× zoveel leven', count: 0.5, hp: 2.2 },
+  { n: 'Stormnacht',   d: 'bliksem springt 2× extra, vijanden +20% leven', chainAdd: 2, hp: 1.2 },
+  { n: 'Stille hemel', d: 'geen Nova, vijanden −25% leven', noNova: true, hp: 0.75 },
+  { n: 'Kristalregen', d: 'de spits herstelt 3 leven per seconde', regen: 3 },
+  { n: 'Gouden golf',  d: 'daarna minstens één epische kaart', minTier: 2 }
+];
+const NO_MOD = {};
+const ALL_CARDS = [...CARDS, ...COMBOS, ...CURSED, ...LEGENDS, ...UNIQUES];
+const MODS_SHARD_BONUS = 1.3;
+
+const FOES = {
+  crawler:  { hp: 10,  sp: 34, r: 9,  dmg: 6,  c: '#b26cf0', shape: 'tri' },
+  drone:    { hp: 6,   sp: 66, r: 7,  dmg: 4,  c: '#5fd3e0', shape: 'dia' },
+  golem:    { hp: 45,  sp: 20, r: 14, dmg: 14, c: '#c98a5a', shape: 'sq' },
+  splitter: { hp: 20,  sp: 30, r: 11, dmg: 7,  c: '#e2566b', shape: 'circ' },
+  mite:     { hp: 5,   sp: 46, r: 6,  dmg: 3,  c: '#e2566b', shape: 'circ' },
+  boss:     { hp: 110, sp: 15, r: 24, dmg: 20, c: '#f0e6ff', shape: 'boss' }
+};
+
+/* ---------- Audio: synthesised with Web Audio, so no sound files are needed ---------- */
+const AUDIO_KEY = 'sterrenwacht.audio';
+const audioPrefs = (() => {
+  try {
+    const d = JSON.parse(localStorage.getItem(AUDIO_KEY) || '{}');
+    return { music: d.music !== false, sfx: d.sfx !== false };
+  } catch (e) { return { music: true, sfx: true }; }
+})();
+let actx = null, musicBus = null, sfxBus = null, echo = null, noiseBuf = null;
+const lastSfx = {};
+const MUSIC_VOL = 0.35, SFX_VOL = 0.5;
+// Minimum real-time gap per effect, so 10× speed does not turn into a wall of noise.
+const SFX_GAP = { shot: 0.07, hit: 0.09 };
+const CHIME_NOTES = [220, 261.6, 293.7, 329.6, 392, 440, 523.3];
+
+/** Browsers only allow sound after a tap, so the audio graph is built on the first interaction. */
+function audioUnlock() {
+  if (actx) { if (actx.state === 'suspended' && !document.hidden) actx.resume().catch(() => {}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  actx = new AC();
+  const master = actx.createGain(); master.gain.value = 0.8; master.connect(actx.destination);
+  musicBus = actx.createGain(); musicBus.gain.value = audioPrefs.music ? MUSIC_VOL : 0; musicBus.connect(master);
+  sfxBus = actx.createGain(); sfxBus.gain.value = audioPrefs.sfx ? SFX_VOL : 0; sfxBus.connect(master);
+  startDrone();
+}
+
+function setAudioPref(id, on) {
+  audioPrefs[id] = on;
+  try { localStorage.setItem(AUDIO_KEY, JSON.stringify(audioPrefs)); } catch (e) {}
+  if (!actx) return;
+  const bus = id === 'music' ? musicBus : sfxBus;
+  bus.gain.setTargetAtTime(on ? (id === 'music' ? MUSIC_VOL : SFX_VOL) : 0, actx.currentTime, 0.2);
+}
+
+function startDrone() {
+  const filter = actx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 600;
+  const lfo = actx.createOscillator(); lfo.frequency.value = 0.05;
+  const lfoDepth = actx.createGain(); lfoDepth.gain.value = 300;
+  lfo.connect(lfoDepth).connect(filter.frequency); lfo.start();
+  echo = actx.createDelay(2); echo.delayTime.value = 0.9;
+  const feedback = actx.createGain(); feedback.gain.value = 0.45;
+  echo.connect(feedback).connect(echo);
+  echo.connect(musicBus);
+  filter.connect(musicBus); filter.connect(echo);
+  // Root, fifth and octaves, slightly detuned so they beat slowly against each other.
+  for (const [f, det, vol] of [[55, 0, 0.18], [55, 7, 0.12], [82.4, -5, 0.1], [110, 3, 0.08], [164.8, 0, 0.04]]) {
+    const o = actx.createOscillator(); o.type = f < 100 ? 'sine' : 'triangle';
+    o.frequency.value = f; o.detune.value = det;
+    const g = actx.createGain(); g.gain.value = vol;
+    o.connect(g).connect(filter); o.start();
+  }
+  scheduleChime();
+}
+
+function scheduleChime() {
+  setTimeout(() => {
+    if (audioPrefs.music && actx.state === 'running') {
+      const t = actx.currentTime;
+      const o = actx.createOscillator(); o.type = 'sine'; o.frequency.value = pickRandom(CHIME_NOTES);
+      const g = actx.createGain();
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.06, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 4);
+      o.connect(g); g.connect(musicBus); g.connect(echo);
+      o.start(t); o.stop(t + 4.1);
+    }
+    scheduleChime();
+  }, 3000 + Math.random() * 5000);
+}
+
+function tone(type, f0, f1, dur, vol, at = 0) {
+  const t = actx.currentTime + at;
+  const o = actx.createOscillator(); o.type = type;
+  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  const g = actx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(sfxBus); o.start(t); o.stop(t + dur + 0.02);
+}
+
+function noise(dur, vol, f0, f1) {
+  if (!noiseBuf) {
+    noiseBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const t = actx.currentTime;
+  const src = actx.createBufferSource(); src.buffer = noiseBuf;
+  const f = actx.createBiquadFilter(); f.type = 'lowpass';
+  f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  const g = actx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f).connect(g).connect(sfxBus); src.start(t); src.stop(t + dur);
+}
+
+/** @param {'shot'|'hit'|'nova'|'boss'|'bossdown'|'pick'|'ach'} kind */
+function sfx(kind) {
+  if (!actx || !audioPrefs.sfx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  if (t - (lastSfx[kind] ?? -1) < (SFX_GAP[kind] ?? 0.03)) return;
+  lastSfx[kind] = t;
+  if (kind === 'shot') tone('sine', 900, 280, 0.08, 0.05);
+  else if (kind === 'hit') tone('triangle', 140, 45, 0.18, 0.2);
+  else if (kind === 'nova') { noise(0.8, 0.35, 3000, 120); tone('sine', 90, 30, 0.7, 0.35); }
+  else if (kind === 'meteor') { tone('sine', 1200, 200, 0.3, 0.06); noise(0.5, 0.3, 1500, 90); tone('sine', 70, 35, 0.4, 0.25); }
+  else if (kind === 'boss') { tone('sawtooth', 45, 38, 1.6, 0.12); noise(1.4, 0.1, 400, 80); }
+  else if (kind === 'bossdown') { [523.3, 392, 329.6, 261.6].forEach((f, i) => tone('triangle', f, f * 0.98, 0.5, 0.12, i * 0.09)); noise(0.9, 0.25, 2000, 100); }
+  else if (kind === 'pick') { tone('sine', 523.3, 523.3, 0.35, 0.08); tone('sine', 784, 784, 0.4, 0.06, 0.08); }
+  else if (kind === 'ach') [392, 523.3, 659.3, 784].forEach((f, i) => tone('triangle', f, f, 0.5, 0.1, i * 0.1));
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!actx) return;
+  if (document.hidden) actx.suspend().catch(() => {});
+  else actx.resume().catch(() => {});
+});
+
+/* ---------- Canvas ---------- */
+const field = document.getElementById('field');
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const ov = document.getElementById('ov');
+const starCv = document.createElement('canvas');
+let w = 1, h = 1, cx = 0, cy = 0, U = 1, M = 1, dpr = 1;
+
+function resize() {
+  const r = field.getBoundingClientRect();
+  w = Math.max(1, r.width); h = Math.max(1, r.height);
+  // 1.5 keeps the field sharp on phones while drawing ~44% fewer pixels than 2.
+  dpr = Math.min(1.5, window.devicePixelRatio || 1);
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx = w / 2; cy = h / 2; M = Math.min(w, h); U = M / 400;
+  paintStars();
+}
+function paintStars() {
+  starCv.width = cv.width; starCv.height = cv.height;
+  const g = starCv.getContext('2d');
+  const grd = g.createRadialGradient(starCv.width / 2, starCv.height / 2, 0, starCv.width / 2, starCv.height / 2, Math.hypot(starCv.width, starCv.height) / 2);
+  grd.addColorStop(0, '#1a1534'); grd.addColorStop(1, '#0d0b1a');
+  g.fillStyle = grd; g.fillRect(0, 0, starCv.width, starCv.height);
+  const n = Math.round(starCv.width * starCv.height / 2600);
+  for (let i = 0; i < n; i++) {
+    const a = Math.random();
+    g.fillStyle = a > 0.97 ? 'rgba(232,193,112,.9)' : `rgba(235,230,246,${0.15 + a * 0.5})`;
+    const s = (a > 0.95 ? 1.6 : 1) * dpr;
+    g.fillRect(Math.random() * starCv.width, Math.random() * starCv.height, s, s);
+  }
+}
+new ResizeObserver(resize).observe(field);
+
+/* ---------- Run state ---------- */
+let phase = 'menu';
+let run = null;
+let speed = 1;
+let offer = [];
+let pickIntro = false;
+
+function baseStats(cls) {
+  const s = {
+    maxHp: 100 + 15 * lv('hp'), hp: 0, regen: 0.5 * lv('regenbase'),
+    dmg: 5 * (1 + 0.1 * lv('dmg')), rate: 1.6 * (1 + 0.08 * lv('rate')),
+    range: 0.42, multishot: 1, pierce: 0, crit: 0.05 + 0.03 * lv('crit'), critMul: 2, chain: 0,
+    orbs: lv('orbstart'), orbPow: 1 + 0.1 * lv('orbpow'), orbSpd: 1, orbSize: 1, orbDur: 1, slow: 0, leech: 0, maxShield: 0, shield: 0, explode: 0,
+    novaCd: 12 - 1.5 * lv('nova'), novaMul: 6 * (1 + 0.1 * lv('novapow')), novaRad: Math.min(NOVA_RAD_CAP, 1 + 0.1 * lv('novarad')), novaBurn: 0, novaOrb: false, chainMul: 0.6,
+    meteor: 0, orbRespawn: ORB_RESPAWN, vamp: 0, devour: 0, freezeEvery: 0, fullHeal: false,
+    hasNova: lv('novaunlock') > 0, orbChain: false, orbRegen: 0, orbRadius: 1, orbSplash: 0, orbCrit: 0, explodeRad: 1, novaCrit: false, shieldRegen: 5, sniper: false, drain: 0, noBolts: false
+  };
+  cls.a(s);
+  s.hp = s.maxHp;
+  return s;
+}
+
+function startRun() {
+  const cls = CLASSES.find(c => c.id === save.cls && classOpen(c)) || CLASSES[0];
+  run = {
+    cls, s: baseStats(cls), rank: Math.min(save.sel, save.rank), wave: 1, kills: 0, rerolls: lv('reroll'), revives: lv('revive'), build: [], orbState: [],
+    foes: [], bolts: [], fx: [], parts: [],
+    toSpawn: [], spawnT: 0, interval: 1, hpMul: 1,
+    fireT: 0, novaT: 0, meteorT: 4, freezeT: 0, freezeCd: 0, mode: { mods: save.modsOn, endless: save.endlessOn }, mod: NO_MOD, owned: new Set(), shardMul: 1, curseHp: 1, spMul: 1,
+    healed: 0, vampBudget: 0, devourKills: 0, cursed: 0, legends: 0, newAch: [], introPicks: lv('start') + lv('start2') + lv('start3'), orbA: 0, shieldIdle: 0, hurtT: 0, banner: null
+  };
+  if (run.introPicks > 0) { pickIntro = true; openPick(); }
+  else startWave(1);
+}
+
+function waveList(n) {
+  const extra = Math.max(0, n - FINAL_WAVE);
+  const count = Math.max(3, Math.floor((5 + n * 1.8) * rankMods(run.rank).count * (run.mod.count ?? 1) * (1 + 0.05 * extra)));
+  const list = [];
+  for (let i = 0; i < count; i++) {
+    const r = Math.random();
+    let t = 'crawler';
+    if (n >= 3 && r < 0.28) t = 'drone';
+    else if (n >= 5 && r < 0.42) t = 'golem';
+    else if (n >= 7 && r < 0.56) t = 'splitter';
+    list.push(t);
+  }
+  if (n % 5 === 0) list.push('boss:' + bossFor(n));
+  if (n === FINAL_WAVE && !run.mode.endless) list.push('boss:' + BOSS_ORDER[(BOSS_ORDER.indexOf(bossFor(n)) + 1) % BOSS_ORDER.length]);
+  return list;
+}
+
+const orbMaxHp = () => ORB_BASE_HP * run.s.orbDur * (1 + 0.15 * lv('orbdur'));
+
+/** Keeps one integrity record per orb; new orbs arrive at full integrity. */
+function syncOrbs() {
+  while (run.orbState.length < run.s.orbs) run.orbState.push({ hp: orbMaxHp(), down: 0, hitT: 0 });
+}
+
+function repairOrbs() {
+  run.orbState = [];
+  syncOrbs();
+}
+
+function startWave(n) {
+  repairOrbs();
+  run.grid = null;
+  run.burns = [];
+  run.wave = n;
+  run.mod = run.mode.mods && n > 1 ? pickRandom(MODS.filter(m => !m.noNova || run.s.hasNova)) : NO_MOD;
+  run.toSpawn = waveList(n);
+  run.interval = Math.max(0.22, 1.0 - n * 0.035);
+  run.spawnT = 0.8;
+  const rm = rankMods(run.rank);
+  run.hpMul = Math.pow(1.16, n - 1) * rm.hp * (run.mod.hp ?? 1) * run.curseHp;
+  run.bossHpMul = Math.pow(BOSS_GROWTH, n - 1) * rm.hp * run.curseHp;
+  run.spMul = rm.sp * (run.mod.sp ?? 1) * (1 + 0.01 * Math.max(0, n - FINAL_WAVE));
+  run.dmgMul = (1 + FOE_DMG_PER_WAVE * (n - 1)) * (1 + FOE_DMG_PER_RANK * run.rank);
+  const label = !run.mode.endless && n === FINAL_WAVE ? `Laatste golf · ${n}` : n % 5 === 0 ? `Golf ${n} · ${BOSSES[bossFor(n)].n}` : `Golf ${n}`;
+  run.banner = { text: label, sub: run.mod.n ? `${run.mod.n}: ${run.mod.d}` : '', t: 2 };
+  setPhase('play');
+}
+
+/** @param {string} entry - foe type, optionally with a boss variant as "boss:brood". */
+function spawn(entry, x, y) {
+  const [type, variant] = entry.split(':');
+  const d = FOES[type];
+  if (x === undefined) {
+    const ang = Math.random() * Math.PI * 2;
+    const dist = Math.hypot(w, h) / 2 + 30;
+    x = cx + Math.cos(ang) * dist; y = cy + Math.sin(ang) * dist;
+  }
+  const hp = d.hp * (type === 'boss' ? run.bossHpMul : run.hpMul);
+  const sp = d.sp * run.spMul * (variant === 'eater' ? 1.3 : 1);
+  run.foes.push({ type, variant, x, y, hp, maxHp: hp, sp, r: d.r, dmg: d.dmg * run.dmgMul, c: variant ? BOSSES[variant].c : d.c, shape: d.shape, fl: 0, dead: false, spin: Math.random() * 6, broodT: 3 });
+  if (type === 'boss') sfx('boss');
+}
+
+/* ---------- Combat ---------- */
+const dist2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+
+const cellKey = (i, j) => i * 100003 + j;
+
+/** Buckets live foes into grid cells, so collision and radius queries skip foes that are far away. Rebuilt once per step. */
+function buildGrid() {
+  const size = Math.max(20, 0.08 * M), cells = new Map();
+  for (const e of run.foes) {
+    if (e.dead) continue;
+    const k = cellKey(Math.floor(e.x / size), Math.floor(e.y / size));
+    let bucket = cells.get(k);
+    if (!bucket) cells.set(k, bucket = []);
+    bucket.push(e);
+  }
+  run.grid = { size, cells };
+}
+
+/** Foes in grid cells overlapping a circle around (x, y); callers still check the exact distance. */
+function foesNear(x, y, r) {
+  if (!run.grid) return run.foes;
+  const { size, cells } = run.grid, out = [];
+  const i1 = Math.floor((x + r) / size), j1 = Math.floor((y + r) / size);
+  for (let i = Math.floor((x - r) / size); i <= i1; i++) {
+    for (let j = Math.floor((y - r) / size); j <= j1; j++) {
+      const bucket = cells.get(cellKey(i, j));
+      if (bucket) for (const e of bucket) out.push(e);
+    }
+  }
+  return out;
+}
+
+function nearestFoes(x, y, maxD, count, exclude) {
+  const md2 = maxD * maxD;
+  const pool = maxD <= 0.35 * M ? foesNear(x, y, maxD + 30 * U) : run.foes;
+  if (count === 1) {
+    let best = null, bestD2 = md2;
+    for (const e of pool) {
+      if (e.dead || (exclude && exclude.has(e))) continue;
+      const d2 = (e.x - x) ** 2 + (e.y - y) ** 2;
+      if (d2 <= bestD2) { bestD2 = d2; best = e; }
+    }
+    return best ? [best] : [];
+  }
+  const list = [];
+  for (const e of pool) {
+    if (e.dead || (exclude && exclude.has(e))) continue;
+    const d2 = (e.x - x) ** 2 + (e.y - y) ** 2;
+    if (d2 <= md2) list.push([d2, e]);
+  }
+  list.sort((a, b) => a[0] - b[0]);
+  return list.slice(0, count).map(p => p[1]);
+}
+
+function fire() {
+  const s = run.s;
+  if (s.noBolts) return false;
+  const targets = nearestFoes(cx, cy, s.range * M, s.multishot);
+  if (!targets.length) return false;
+  sfx('shot');
+  for (let i = 0; i < s.multishot; i++) {
+    const t = targets[i % targets.length];
+    const spread = (i - (s.multishot - 1) / 2) * 0.25;
+    const ang = Math.atan2(t.y - cy, t.x - cx) + spread;
+    const v = 430 * U;
+    run.bolts.push({ x: cx, y: cy, vx: Math.cos(ang) * v, y0: 0, vy: Math.sin(ang) * v, t, hit: new Set(), hitCount: 0, pierce: s.pierce, life: 2.5 });
+  }
+  return true;
+}
+
+function damage(e, amt) {
+  if (e.dead) return;
+  if (e.type === 'boss') amt *= 1 + 0.1 * lv('bosskill');
+  const s = run.s;
+  if (s.vamp) heal(Math.min(run.vampBudget, Math.min(amt, Math.max(0, e.hp)) * s.vamp), true);
+  e.hp -= amt; e.fl = 0.08;
+  if (e.hp <= 0) kill(e);
+}
+
+/** Heals the spire and tracks total healing; Vampier healing draws from a per-second budget. */
+function heal(a, fromVamp) {
+  if (a <= 0) return;
+  const s = run.s;
+  if (fromVamp) run.vampBudget -= a;
+  const before = s.hp;
+  s.hp = Math.min(s.maxHp, s.hp + a);
+  run.healed += s.hp - before;
+  if (run.healed >= 1000) grant('heal1000');
+}
+
+/** Unlocks an achievement once and pays its shard reward. */
+function grant(id) {
+  if (save.ach[id]) return;
+  const a = ACHIEVEMENTS.find(x => x.id === id);
+  save.ach[id] = true;
+  save.shards += ACH_REWARD;
+  persist();
+  sfx('ach');
+  if (!run) return;
+  run.newAch.push(a.n);
+  run.banner = { text: 'Prestatie: ' + a.n, sub: a.unlocks ? 'Nieuwe wachter: ' + a.unlocks : `+${ACH_REWARD} splinters`, t: 2.4 };
+}
+
+function kill(e) {
+  e.dead = true;
+  run.kills++;
+  const s = run.s;
+  if (s.leech) heal(s.leech);
+  if (s.devour) {
+    // Linear and capped: compounding 1.001^kills reached ×100+ in long endless runs and outgrew every enemy.
+    const old = 1 + Math.min(DEVOUR_CAP, s.devour * run.devourKills);
+    run.devourKills++;
+    s.dmg *= (1 + Math.min(DEVOUR_CAP, s.devour * run.devourKills)) / old;
+  }
+  burst(e.x, e.y, e.c, e.type === 'boss' ? 40 : 8);
+  if (e.variant) {
+    sfx('bossdown');
+    save.bosses[e.variant] = true;
+    persist();
+    if (BOSS_ORDER.every(v => save.bosses[v])) grant('bosses');
+  }
+  if (e.type === 'splitter') {
+    spawn('mite', e.x + 6 * U, e.y);
+    spawn('mite', e.x - 6 * U, e.y);
+  }
+}
+
+function hitFoe(e, b) {
+  const s = run.s;
+  const crit = Math.random() < s.crit;
+  let d = s.dmg * (crit ? s.critMul : 1) * (run.mod.boltMul ?? 1) * Math.pow(PIERCE_FALLOFF, b.hitCount - 1);
+  if (s.sniper && Math.hypot(e.x - cx, e.y - cy) > 0.6 * s.range * M) d *= 1.6;
+  // The Bulwark's shield faces the spire, so bolts glance off it; splash damage below still lands in full.
+  if (e.variant === 'bulwark') {
+    damage(e, d * BULWARK_BOLT);
+    run.fx.push({ k: 'ring', x: b.x, y: b.y, r0: 2 * U, r1: 9 * U, life: 0.15, max: 0.15, c: '232,193,112' });
+  } else damage(e, d);
+  if (crit) {
+    run.fx.push({ k: 'ring', x: e.x, y: e.y, r0: 4 * U, r1: 18 * U, life: 0.25, max: 0.25, c: '232,193,112', w: 3 });
+    const shown = e.variant === 'bulwark' ? d * BULWARK_BOLT : d;
+    if (run.fx.length < 140) run.fx.push({ k: 'num', x: e.x, y: e.y - e.r * U - 4 * U, text: Math.round(shown) + '!', big: true, col: '#e8c170', life: 0.8, max: 0.8 });
+  }
+  if (s.explode) {
+    // Includes the struck foe itself, matching the card text "50% extra schade".
+    const rad = 0.14 * M * s.explodeRad;
+    for (const o of nearestFoes(e.x, e.y, rad, 99)) damage(o, d * s.explode);
+    run.fx.push({ k: 'ring', x: e.x, y: e.y, r0: 2 * U, r1: rad, life: 0.25, max: 0.25, c: '226,86,107' });
+  }
+  const jumps = s.chain + (run.mod.chainAdd ?? 0);
+  // Lightning starts only from a bolt's first hit; chaining from every pierce hit multiplied damage out of control.
+  if (jumps && b.hitCount === 1) {
+    const seen = new Set([e]);
+    let from = e;
+    for (let i = 0; i < jumps; i++) {
+      const nx = nearestFoes(from.x, from.y, 0.3 * M, 1, seen)[0];
+      if (!nx) break;
+      run.fx.push({ k: 'zap', x1: from.x, y1: from.y, x2: nx.x, y2: nx.y, life: 0.15, max: 0.15 });
+      damage(nx, d * s.chainMul);
+      seen.add(nx); from = nx;
+    }
+  }
+}
+
+/** Ages visual effects in real time, so they stay readable at 5× and 10× game speed. */
+function decayFx(dt) {
+  for (const f of run.fx) f.life -= dt;
+  for (const p of run.parts) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.94; p.vy *= 0.94; }
+  if (run.banner && (run.banner.t -= dt) <= 0) run.banner = null;
+  run.fx = run.fx.filter(f => f.life > 0);
+  run.parts = run.parts.filter(p => p.life > 0);
+}
+
+const NOVA_BURN_TIME = 3;
+// Nova radius is capped at 3× the base: stacking Supernova, Wijde nova and Novagolf covered the whole field.
+const NOVA_RAD_CAP = 3;
+/** Nova damage; with Ethernova it takes half of the orb bonus, so it keeps pace with orb builds without overtaking them. */
+const novaDamage = s => s.dmg * s.novaMul * (s.novaOrb ? 1 + (s.orbPow - 1) * 0.5 : 1);
+
+function nova(x, y) {
+  const s = run.s;
+  if (!s.hasNova || run.novaT > 0 || run.mod.noNova) return;
+  const rad = 0.2 * M * s.novaRad;
+  const crit = s.novaCrit && Math.random() < s.crit;
+  const killsBefore = run.kills;
+  const hit = novaDamage(s) * (crit ? s.critMul : 1);
+  for (const e of nearestFoes(x, y, rad, 999)) damage(e, hit);
+  if (s.novaBurn) run.burns.push({ x, y, r: rad, t: NOVA_BURN_TIME, dps: novaDamage(s) * s.novaBurn });
+  if (run.kills - killsBefore >= 15) grant('nova15');
+  if (crit) run.fx.push({ k: 'num', x, y, text: 'Kritiek!', big: true, col: '#e8c170', life: 1, max: 1 });
+  sfx('nova');
+  run.fx.push({ k: 'beam', x1: cx, y1: cy, x2: x, y2: y, life: 0.35, max: 0.35 });
+  run.fx.push({ k: 'flash', x, y, r: rad, life: 0.7, max: 0.7 });
+  run.fx.push({ k: 'ring', x, y, r0: 6 * U, r1: rad, life: 0.7, max: 0.7, c: '255,224,150', w: 4 });
+  burst(x, y, '#e8c170', 24);
+  run.novaT = s.novaCd;
+}
+
+/**
+ * Fires the Nova at the densest on-screen cluster once charged.
+ * Holds the charge for a worthwhile target (3+ foes, a boss, or a foe close to the spire) so it is not spent on a lone straggler.
+ */
+function autoNova() {
+  const rad = 0.2 * M * run.s.novaRad, r2 = rad * rad, danger2 = (0.25 * M) ** 2;
+  const visible = run.foes.filter(e => !e.dead && e.x > 0 && e.y > 0 && e.x < w && e.y < h);
+  if (!visible.length) return;
+  let urgent = false;
+  for (const a of visible) if (a.type === 'boss' || (a.x - cx) ** 2 + (a.y - cy) ** 2 < danger2) { urgent = true; break; }
+  // Scoring every foe against every foe got slow with hundreds on screen; 40 sampled centres find a good cluster.
+  const centres = visible.length > 40 ? visible.slice().sort(() => Math.random() - 0.5).slice(0, 40) : visible;
+  let best = null, bestCount = 0;
+  for (const a of centres) {
+    let count = 0;
+    for (const b of foesNear(a.x, a.y, rad)) if (!b.dead && (a.x - b.x) ** 2 + (a.y - b.y) ** 2 <= r2) count++;
+    if (count > bestCount) { bestCount = count; best = a; }
+  }
+  if (bestCount >= 3 || urgent) nova(best.x, best.y);
+}
+
+function hurt(amt) {
+  const s = run.s;
+  run.shieldIdle = 0; run.hurtT = 0.25;
+  amt *= 1 - 0.05 * lv('armor');
+  const absorbed = Math.min(s.shield, amt);
+  s.shield -= absorbed;
+  s.hp -= amt - absorbed;
+  if (s.hp > 0) return;
+  if (run.revives > 0) {
+    run.revives--;
+    s.hp = s.maxHp * 0.4;
+    const rad = 0.3 * M;
+    for (const e of nearestFoes(cx, cy, rad, 999)) damage(e, s.dmg * s.novaMul * 2);
+    run.fx.push({ k: 'ring', x: cx, y: cy, r0: 10 * U, r1: rad, life: 0.6, max: 0.6, c: '232,193,112' });
+    run.banner = { text: 'Tweede adem', t: 1.4 };
+    return;
+  }
+  s.hp = 0; gameOver();
+}
+
+function burst(x, y, c, n) {
+  for (let i = 0; i < n && run.parts.length < 220; i++) {
+    const a = Math.random() * Math.PI * 2, v = (30 + Math.random() * 90) * U;
+    run.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.5, max: 0.5, c });
+  }
+}
+
+/* ---------- Simulation ---------- */
+function step(dt) {
+  const s = run.s;
+
+  if (run.toSpawn.length) {
+    run.spawnT -= dt;
+    if (run.spawnT <= 0) { spawn(run.toSpawn.shift()); run.spawnT = run.interval; }
+  }
+
+  heal((s.regen + (run.mod.regen ?? 0)) * dt);
+  if (s.drain) {
+    // Scales with max life so permanent regen upgrades cannot cancel it out; it can be lethal by design.
+    s.hp -= s.maxHp * s.drain * dt;
+    if (s.hp <= 0) { hurt(0); if (phase !== 'play') return; }
+  }
+  if (s.vamp) run.vampBudget = Math.min(s.maxHp * VAMP_CAP, run.vampBudget + s.maxHp * VAMP_CAP * dt);
+  run.shieldIdle += dt;
+  if (s.maxShield && run.shieldIdle > 3) s.shield = Math.min(s.maxShield, s.shield + s.shieldRegen * dt);
+  if (run.novaT > 0) run.novaT = Math.max(0, run.novaT - dt);
+  if (run.hurtT > 0) run.hurtT -= dt;
+
+  if (s.freezeEvery) {
+    if (run.freezeT > 0) run.freezeT -= dt;
+    // Hold the freeze until a foe is within range; freezing foes that are still off-screen leaves nothing to shoot.
+    else if ((run.freezeCd -= dt) <= 0 && nearestFoes(cx, cy, s.range * M, 1).length) { run.freezeT = 2.5; run.freezeCd = s.freezeEvery; run.banner = { text: 'Tijdstop', t: 1 }; }
+  }
+  if (s.meteor && (run.meteorT -= dt) <= 0) {
+    // Only on-screen foes: the toughest foe was often a fresh spawn outside the screen, so the impact was never seen.
+    let tgt = null;
+    for (const e of run.foes) {
+      if (e.dead || e.x < 0 || e.y < 0 || e.x > w || e.y > h) continue;
+      if (!tgt || e.hp > tgt.hp) tgt = e;
+    }
+    if (tgt) {
+      run.meteorT = s.meteor;
+      const dmg = s.dmg * 15;
+      run.fx.push({ k: 'meteor', x1: tgt.x + 70 * U, y1: tgt.y - 180 * U, x2: tgt.x, y2: tgt.y, life: 0.35, max: 0.35 });
+      run.fx.push({ k: 'flash', x: tgt.x, y: tgt.y, r: 40 * U, life: 0.5, max: 0.5 });
+      run.fx.push({ k: 'ring', x: tgt.x, y: tgt.y, r0: 4 * U, r1: 40 * U, life: 0.5, max: 0.5, c: '255,160,90', w: 4 });
+      if (run.fx.length < 220) run.fx.push({ k: 'num', x: tgt.x, y: tgt.y - tgt.r * U - 8 * U, text: String(Math.round(dmg)), big: true, col: '#ffb070', life: 0.9, max: 0.9 });
+      burst(tgt.x, tgt.y, '#ffb070', 20);
+      sfx('meteor');
+      damage(tgt, dmg);
+    }
+  }
+
+  if (s.hasNova && run.novaT <= 0 && !run.mod.noNova && (run.novaScanT = (run.novaScanT ?? 0) - dt) <= 0) {
+    run.novaScanT = 0.2;
+    autoNova();
+  }
+
+  run.fireT -= dt;
+  if (run.fireT <= 0) run.fireT = fire() ? 1 / s.rate : 0;
+
+  const towerR = 18 * U, slowR2 = (0.26 * M) ** 2;
+  for (const e of run.foes) {
+    if (e.dead) continue;
+    const dx = cx - e.x, dy = cy - e.y, d = Math.hypot(dx, dy) || 1;
+    e.spin += dt * 1.5; if (e.fl > 0) e.fl -= dt;
+    if (run.freezeT > 0) continue;
+    if (e.variant === 'brood' && (e.broodT -= dt) <= 0) {
+      e.broodT = 3;
+      spawn('mite', e.x + 8 * U, e.y);
+      spawn('mite', e.x - 8 * U, e.y);
+    }
+    const reach = towerR + e.r * U;
+    // Bosses stop at the tower and pound it periodically instead of crashing, so the fight continues after arrival.
+    if (e.type === 'boss' && d <= reach) {
+      e.atkT = (e.atkT ?? 0) - dt;
+      if (e.atkT <= 0) {
+        e.atkT = BOSS_HIT_INTERVAL;
+        run.fx.push({ k: 'ring', x: cx, y: cy, r0: towerR, r1: towerR * 2.2, life: 0.3, max: 0.3, c: '240,230,255' });
+        hurt(e.dmg * BOSS_HIT_FRACTION);
+        sfx('hit');
+        if (phase !== 'play') return;
+      }
+      continue;
+    }
+    const slowed = s.slow && (dx * dx + dy * dy) < slowR2 ? 1 - s.slow : 1;
+    const v = e.sp * U * slowed * dt;
+    e.x += dx / d * v; e.y += dy / d * v;
+    if (e.type !== 'boss' && d < reach) { e.dead = true; burst(e.x, e.y, e.c, 6); sfx('hit'); hurt(e.dmg); if (phase !== 'play') return; }
+  }
+
+  buildGrid();
+  for (const f of run.burns) {
+    f.t -= dt;
+    for (const e of foesNear(f.x, f.y, f.r + 30 * U)) if (!e.dead && (e.x - f.x) ** 2 + (e.y - f.y) ** 2 <= f.r * f.r) damage(e, f.dps * dt);
+  }
+  run.burns = run.burns.filter(f => f.t > 0);
+  for (const b of run.bolts) {
+    b.life -= dt;
+    if (b.t && !b.t.dead) {
+      const dx = b.t.x - b.x, dy = b.t.y - b.y, d = Math.hypot(dx, dy) || 1;
+      const v = Math.hypot(b.vx, b.vy);
+      b.vx = dx / d * v; b.vy = dy / d * v;
+    }
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    for (const e of foesNear(b.x, b.y, 34 * U)) {
+      if (e.dead || b.hit.has(e)) continue;
+      const rr = e.r * U + 4 * U;
+      if (dist2(e, b) < rr * rr) {
+        b.hit.add(e); b.hitCount++; hitFoe(e, b);
+        if (b.pierce-- <= 0) { b.life = 0; break; }
+        b.t = nearestFoes(b.x, b.y, s.range * M, 1, b.hit)[0] || null;
+      }
+    }
+    if (b.x < -40 || b.y < -40 || b.x > w + 40 || b.y > h + 40) b.life = 0;
+  }
+
+  if (s.orbs) {
+    run.orbA += dt * 2.2 * s.orbSpd;
+    const orR = Math.max(0.15 * M, towerR + 26 * U) * s.orbRadius, orbSize = 7 * U * s.orbSize;
+    for (const e of run.foes) if (e.orbCd > 0) e.orbCd -= dt;
+    syncOrbs();
+    for (let i = 0; i < s.orbs; i++) {
+      const orb = run.orbState[i];
+      if (orb.hitT > 0) orb.hitT -= dt;
+      if (s.orbRegen && orb.down <= 0) orb.hp = Math.min(orbMaxHp(), orb.hp + orbMaxHp() * s.orbRegen * dt);
+      if (orb.down > 0) {
+        orb.down -= dt;
+        if (orb.down <= 0) { orb.down = 0; orb.hp = orbMaxHp(); }
+        continue;
+      }
+      const a = run.orbA + i * Math.PI * 2 / s.orbs;
+      const ox = cx + Math.cos(a) * orR, oy = cy + Math.sin(a) * orR;
+      for (const e of foesNear(ox, oy, orbSize + 30 * U)) {
+        if (orb.down > 0) break;
+        if (e.dead || e.orbCd > 0) continue;
+        const rr = e.r * U + orbSize;
+        if ((e.x - ox) ** 2 + (e.y - oy) ** 2 >= rr * rr) continue;
+        // Discrete hits with knockback: continuous contact damage was negligible because foes crossed the orbit in a fraction of a second.
+        // Cooldown is per foe, shared by all orbs; kept short so extra orbs still add hits.
+        e.orbCd = 0.15;
+        // Orbs wear down on contact; later waves hit harder so a fixed orb ring cannot wall off the late game.
+        // The Ethervreter breaks any orb that touches it.
+        orb.hp -= e.variant === 'eater' ? orb.hp : e.dmg * (1 + ORB_WEAR_PER_WAVE * (run.wave - 1));
+        orb.hitT = 0.15;
+        if (orb.hp <= 0) {
+          orb.hp = 0; orb.down = s.orbRespawn;
+          burst(ox, oy, '#5fd3e0', 10);
+        }
+        const orbCritHit = s.orbCrit && Math.random() < s.orbCrit;
+        const orbHit = s.dmg * 1.5 * s.orbPow * (run.mod.orbMul ?? 1) * (orbCritHit ? s.critMul : 1);
+        damage(e, orbHit);
+        if (s.orbSplash) for (const o of nearestFoes(e.x, e.y, 0.08 * M, 20)) if (o !== e) damage(o, orbHit * s.orbSplash);
+        if (s.orbChain) {
+          const nx = nearestFoes(e.x, e.y, 0.3 * M, 1, new Set([e]))[0];
+          if (nx) {
+            run.fx.push({ k: 'zap', x1: e.x, y1: e.y, x2: nx.x, y2: nx.y, life: 0.15, max: 0.15 });
+            damage(nx, orbHit * s.chainMul);
+          }
+        }
+        run.fx.push({ k: 'ring', x: e.x, y: e.y, r0: 3 * U, r1: e.r * U + 8 * U, life: 0.18, max: 0.18, c: '95,211,224' });
+        if (run.fx.length < 120) run.fx.push({ k: 'num', x: e.x + (Math.random() - 0.5) * e.r * U, y: e.y - e.r * U, text: String(Math.round(orbHit)), big: e.type === 'boss', life: 0.6, max: 0.6 });
+        if (e.type !== 'boss') {
+          const dx = e.x - cx, dy = e.y - cy, d = Math.hypot(dx, dy) || 1;
+          e.x += dx / d * 14 * U; e.y += dy / d * 14 * U;
+        }
+      }
+    }
+  }
+
+  run.foes = run.foes.filter(e => !e.dead);
+  run.bolts = run.bolts.filter(b => b.life > 0);
+
+  if (!run.toSpawn.length && !run.foes.length) endWave();
+}
+
+function endWave() {
+  run.bolts = [];
+  if (run.wave >= FINAL_WAVE && !run.mode.endless) { finishRun(true); return; }
+  if (run.mode.endless && run.wave >= 40) grant('endless40');
+  pickIntro = false;
+  openPick();
+}
+
+/* ---------- Cards ---------- */
+/** Rolls a tier for one card slot, never below minTier. */
+function rollTier(minTier) {
+  const rareBoost = 1 + 0.15 * lv('luck'), legendBoost = 1 + 0.25 * lv('legend');
+  const w = TIER_ODDS.map((o, t) => t < minTier ? 0 : t === 0 ? o : t <= 2 ? o * rareBoost : o * rareBoost * legendBoost);
+  let roll = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let t = 0; t < w.length; t++) { roll -= w[t]; if (roll <= 0) return t; }
+  return minTier;
+}
+
+const pickRandom = list => list[Math.floor(Math.random() * list.length)];
+
+/** Whether a card may be offered now. Combos, curses and uniques appear at most once per run. */
+function fits(c, taken) {
+  if (taken.has(c) || (c.ok && !c.ok(run.s))) return false;
+  if (run.s.noBolts && BOLT_CARDS.has(c.n)) return false;
+  if ((c.kind || c.r === 4) && run.owned.has(c.n)) return false;
+  if (c.req && !c.req.every(x => run.owned.has(x))) return false;
+  return true;
+}
+
+/** Picks a card for the rolled tier; an exhausted unique or legendary pool steps down one tier. */
+function cardForTier(t, taken) {
+  const ok = c => fits(c, taken);
+  if (t === 4) { const p = UNIQUES.filter(ok); if (p.length) return pickRandom(p); t = 3; }
+  if (t === 3) { const p = LEGENDS.filter(ok); if (p.length) return pickRandom(p); t = 2; }
+  // An unlocked combo takes half of the rare-or-better slots, so it shows up soon after you qualify.
+  const combos = t >= 1 ? COMBOS.filter(ok) : [];
+  if (combos.length && Math.random() < 0.5) return pickRandom(combos);
+  const pool = CARDS.filter(c => c.r <= t && ok(c));
+  if (!pool.length) return null;
+  // Cards native to the tier are favoured over promoted lower-tier cards.
+  const wt = c => (c.r === t ? 3 : 1);
+  let roll = Math.random() * pool.reduce((a, c) => a + wt(c), 0);
+  for (const c of pool) { roll -= wt(c); if (roll <= 0) return c; }
+  return pool[0];
+}
+
+function drawOffer() {
+  const n = lv('choice') ? 4 : 3;
+  const taken = new Set(), out = [];
+  // Boss waves and the Gouden golf modifier guarantee one epic-or-better slot.
+  const guaranteed = !pickIntro && (run.wave % 5 === 0 || !!run.mod.minTier);
+  for (let i = 0; i < n; i++) {
+    if (!pickIntro && run.wave >= 3 && Math.random() < CURSE_CHANCE) {
+      const curses = CURSED.filter(c => fits(c, taken));
+      if (curses.length) { const c = pickRandom(curses); taken.add(c); out.push({ c, tier: 0, k: 1 }); continue; }
+    }
+    const t = rollTier(guaranteed && i === 0 ? 2 : 0);
+    const c = cardForTier(t, taken);
+    if (!c) continue;
+    taken.add(c);
+    const tier = c.r >= 3 ? c.r : Math.max(c.r, Math.min(t, 2));
+    out.push({ c, tier, k: c.r >= 3 ? 1 : TIER_POWER[tier] / TIER_POWER[c.r] });
+  }
+  for (const o of out) save.seen[o.c.n] = true;
+  persist();
+  if (Object.keys(save.seen).length >= 35) grant('collect');
+  return out;
+}
+
+function openPick() {
+  offer = drawOffer();
+  setPhase('pick');
+}
+
+function pickCard(i) {
+  // A second tap on a stale card after the pick screen closed must not skip a wave.
+  if (phase !== 'pick') return;
+  const o = offer[i];
+  if (!o) return;
+  o.c.a(run.s, o.k);
+  run.owned.add(o.c.n);
+  sfx('pick');
+  if (o.c.r === 4) grant('unique');
+  if (o.c.r === 3 && ++run.legends >= 3) grant('legend3');
+  if (o.c.kind === 'combo') grant('combo');
+  if (o.c.kind === 'cursed') run.cursed++;
+  run.build.push(o.tier > o.c.r ? `${o.c.n} (${RARITY[o.tier].toLowerCase()})` : o.c.n);
+  if (pickIntro) {
+    run.introPicks--;
+    if (run.introPicks > 0) { openPick(); return; }
+    pickIntro = false; startWave(1); return;
+  }
+  run.s.hp = Math.min(run.s.maxHp, run.s.hp + run.s.maxHp * (run.s.fullHeal ? 0.5 : 0.15));
+  startWave(run.wave + 1);
+}
+
+/* ---------- End of run ---------- */
+let lastResult = null;
+function gameOver() { finishRun(false); }
+
+/**
+ * Ends the current run, pays out shards and updates unlocks.
+ * @param {boolean} won - true when the final wave was cleared.
+ */
+function finishRun(won) {
+  const endless = run.mode.endless;
+  // An endless run counts as a win once wave 30 is behind you.
+  if (endless) won = run.wave > FINAL_WAVE;
+  const cleared = won && !endless ? run.wave : run.wave - 1;
+  const victoryBonus = won ? 40 : 0;
+  const modeBonus = run.mode.mods ? MODS_SHARD_BONUS : 1;
+  const earned = Math.max(2, Math.round((cleared * cleared * 0.2 + run.kills * 0.04 + 2 + victoryBonus) * (1 + 0.1 * lv('shard')) * rankMods(run.rank).shards * modeBonus * run.shardMul));
+  if (won) {
+    grant('win1');
+    if (run.s.orbs >= 6) grant('orbs6');
+    if (run.cursed >= 3) grant('curse3');
+    if (run.mode.mods) grant('mods');
+  }
+  if (endless) save.bestEndless = Math.max(save.bestEndless, run.wave);
+  const prevBest = save.best;
+  save.shards += earned;
+  save.best = Math.max(save.best, run.wave);
+  save.runs += 1;
+  let newRank = null;
+  if (won && run.rank === save.rank && save.rank < MAX_RANK) {
+    save.rank += 1; save.sel = save.rank; newRank = save.rank;
+  }
+  if (save.rank >= 3) grant('rank3');
+  if (save.rank >= 10) grant('rank10');
+  persist();
+  const unlocked = CLASSES.filter(c => !c.ach && c.unlock > prevBest && c.unlock <= save.best).map(c => c.n);
+  lastResult = { won, endless, rank: run.rank, newRank, wave: run.wave, kills: run.kills, earned, build: run.build.slice(), unlocked, newAch: run.newAch.slice(), record: !won && run.wave > prevBest };
+  setPhase('over');
+}
+
+/* ---------- Screens ---------- */
+const esc = str => String(str).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+function setPhase(p) {
+  phase = p;
+  ov.hidden = p === 'play';
+  if (p === 'menu') ov.innerHTML = menuHtml();
+  else if (p === 'tree') ov.innerHTML = treeHtml();
+  else if (p === 'pick') ov.innerHTML = pickHtml();
+  else if (p === 'pause') ov.innerHTML = pauseHtml();
+  else if (p === 'over') ov.innerHTML = overHtml();
+  else if (p === 'ach') ov.innerHTML = achHtml();
+  else if (p === 'reset') ov.innerHTML = resetHtml();
+  else if (p === 'coll') ov.innerHTML = collHtml();
+  ov.scrollTop = 0;
+  updateHud();
+}
+
+function menuHtml() {
+  const cls = CLASSES.map(c => {
+    const open = classOpen(c);
+    const need = c.ach ? ACHIEVEMENTS.find(a => a.id === c.ach) : null;
+    const lockTag = need ? 'Prestatie' : 'Golf ' + c.unlock;
+    const lockText = need ? `Prestatie "${need.n}": ${need.d}` : 'Bereik golf ' + c.unlock + ' om vrij te spelen.';
+    return `<button class="cls" type="button" data-act="cls" data-id="${c.id}" aria-pressed="${save.cls === c.id && open}" ${open ? '' : 'disabled'}>
+      <strong>${esc(c.n)}</strong><em>${open ? '' : lockTag}</em>
+      <span>${esc(open ? c.d : lockText)}</span></button>`;
+  }).join('');
+  const toggle = (id, title, on, text) => `<button class="cls" type="button" data-act="toggle" data-id="${id}" aria-pressed="${on}">
+      <strong>${title}</strong><em>${on ? 'Aan' : 'Uit'}</em><span>${text}</span></button>`;
+  const achCount = ACHIEVEMENTS.filter(a => save.ach[a.id]).length;
+  const seenCount = ALL_CARDS.filter(c => save.seen[c.n]).length;
+  return `<div class="wrap">
+    <h1>Sterrenwacht</h1>
+    <p class="sub">Houd de kristalspits staande tegen de leegte. De toren vuurt zelf. Met de Nova uit de Hemelboom ontploft er vanzelf een explosie op de grootste groep vijanden; tik om zelf te mikken. Kies na elke golf een zegen.</p>
+    <div class="stats"><span>Splinters <b>${save.shards}</b></span><span>Beste golf <b>${save.best}</b></span><span>Runs <b>${save.runs}</b></span></div>
+    ${rankHtml()}
+    <div class="label">Spelmodus</div>
+    <div class="toggles">
+      ${toggle('modsOn', 'Golfmodificaties', save.modsOn, 'Elke golf krijgt een willekeurige twist. +30% splinters.')}
+      ${toggle('endlessOn', 'Oneindige run', save.endlessOn, `Na golf 30 gaat het door, en elke golf wordt zwaarder. Record: golf ${save.bestEndless || '–'}.`)}
+    </div>
+    <div class="label">Geluid</div>
+    <div class="toggles">
+      ${toggle('music', 'Achtergrondklank', audioPrefs.music, 'Rustige ruimteklank.')}
+      ${toggle('sfx', 'Effecten', audioPrefs.sfx, 'Schoten, Nova en bazen.')}
+    </div>
+    <div class="label">Kies je wachter</div>
+    <div class="classes">${cls}</div>
+    <div class="row"><button class="btn primary" type="button" data-act="start">Start run</button><button class="btn" type="button" data-act="tree">Hemelboom</button></div>
+    <div class="row"><button class="btn" type="button" data-act="ach">Prestaties ${achCount}/${ACHIEVEMENTS.length}</button><button class="btn" type="button" data-act="coll">Collectie ${seenCount}/${ALL_CARDS.length}</button></div>
+    <button class="btn" type="button" data-act="reset">Voortgang wissen</button>
+    <p class="version">Versie ${GAME_VERSION}</p>
+  </div>`;
+}
+
+function rankHtml() {
+  const sel = Math.min(save.sel, save.rank);
+  const m = rankMods(sel);
+  const info = sel === 0
+    ? `Win door golf ${FINAL_WAVE} te overleven. Dan speel je rang 1 vrij.`
+    : `Vijanden +${Math.round((m.hp - 1) * 100)}% leven, sneller en talrijker. Splinters ×${m.shards.toFixed(1).replace('.', ',')}.`;
+  return `<div class="label">Sterrenrang</div>
+    <div class="rank">
+      <button class="hbtn" type="button" data-act="rank" data-d="-1" aria-label="Lagere rang" ${sel > 0 ? '' : 'disabled'}>−</button>
+      <strong>Rang ${sel}</strong>
+      <button class="hbtn" type="button" data-act="rank" data-d="1" aria-label="Hogere rang" ${sel < save.rank ? '' : 'disabled'}>+</button>
+      <span>${info}</span>
+    </div>`;
+}
+
+function treeHtml() {
+  const nodes = META.map(m => {
+    const l = lv(m.id), maxed = l >= m.max, cost = metaCost(m);
+    const needsFirst = m.needs && !lv(m.needs);
+    const extRank = metaLevelRank(m);
+    const locked = needsFirst || extRank > save.rank;
+    const pips = Array.from({ length: m.max }, (_, i) => `<i class="${i < l ? 'on' : ''}"></i>`).join('');
+    return `<div class="node"><strong>${esc(m.n)}</strong>
+      <button class="btn" type="button" data-act="buy" data-id="${m.id}" ${locked || maxed || save.shards < cost ? 'disabled' : ''}>${needsFirst ? 'Eerst Nova' : locked ? 'Rang ' + extRank : maxed ? 'Vol' : cost + ' ✦'}</button>
+      <span>${esc(m.d)}</span><div class="pips">${pips}</div></div>`;
+  }).join('');
+  return `<div class="wrap">
+    <h2>Hemelboom</h2>
+    <p class="sub">Blijvende versterkingen. Ethersplinters krijg je aan het eind van elke run, meer naarmate je verder komt.</p>
+    <div class="stats"><span>Splinters <b>${save.shards}</b></span></div>
+    <div class="tree">${nodes}</div>
+    <button class="btn primary" type="button" data-act="menu">Terug</button>
+  </div>`;
+}
+
+const KIND_LABEL = { combo: 'Combo', cursed: 'Vervloekt' };
+
+function resetHtml() {
+  return `<div class="wrap">
+    <h2>Voortgang wissen?</h2>
+    <p class="sub">Dit wist je splinters, Hemelboom, rangen, records, prestaties, vrijgespeelde wachters en collectie. Je geluidsinstellingen blijven staan. Dit kun je niet ongedaan maken.</p>
+    <div class="stats"><span>Splinters <b>${save.shards}</b></span><span>Rang <b>${save.rank}</b></span><span>Runs <b>${save.runs}</b></span></div>
+    <div class="row"><button class="btn danger" type="button" data-act="reset-confirm">Ja, alles wissen</button><button class="btn primary" type="button" data-act="menu">Annuleren</button></div>
+  </div>`;
+}
+
+/** Clears the stored save and resets the in-memory save object to a fresh start. */
+function resetProgress() {
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+  for (const k of Object.keys(save)) delete save[k];
+  Object.assign(save, loadSave());
+}
+
+function achHtml() {
+  const rows = ACHIEVEMENTS.map(a => {
+    const done = !!save.ach[a.id];
+    return `<div class="${done ? 'done' : ''}"><strong>${esc(a.n)}</strong><em>${done ? 'Behaald' : '+' + ACH_REWARD + ' ✦'}</em>
+      <span>${esc(a.d)}${a.unlocks ? ' Speelt ' + esc(a.unlocks) + ' vrij.' : ''}</span></div>`;
+  }).join('');
+  return `<div class="wrap">
+    <h2>Prestaties</h2>
+    <p class="sub">Elke prestatie levert ${ACH_REWARD} splinters op. Sommige spelen een nieuwe wachter vrij.</p>
+    <div class="achs">${rows}</div>
+    <button class="btn primary" type="button" data-act="menu">Terug</button>
+  </div>`;
+}
+
+function collHtml() {
+  const groups = [
+    ['Gewoon', CARDS.filter(c => c.r === 0), 't0'], ['Zeldzaam', CARDS.filter(c => c.r === 1), 't1'],
+    ['Episch', CARDS.filter(c => c.r === 2), 't2'], ['Combo', COMBOS, 'tc'], ['Vervloekt', CURSED, 'tx'],
+    ['Legendarisch', LEGENDS, 't3'], ['Uniek', UNIQUES, 't4']
+  ];
+  const body = groups.map(([label, list, cls]) => {
+    const items = list.map(c => {
+      const seen = !!save.seen[c.n];
+      const hint = c.req ? 'Combinatie van ' + c.req.join(' + ') : '';
+      return seen
+        ? `<div class="${cls}"><strong>${esc(c.n)}</strong><span>${esc(c.d(1))}</span>${hint ? `<span>${esc(hint)}</span>` : ''}</div>`
+        : `<div class="${cls} unseen"><strong>???</strong><span>Nog niet ontdekt</span></div>`;
+    }).join('');
+    const found = list.filter(c => save.seen[c.n]).length;
+    return `<div class="label">${label} · ${found}/${list.length}</div><div class="coll">${items}</div>`;
+  }).join('');
+  return `<div class="wrap">
+    <h2>Collectie</h2>
+    <p class="sub">Elke kaart die je ooit aangeboden kreeg.</p>
+    ${body}
+    <button class="btn primary" type="button" data-act="menu">Terug</button>
+  </div>`;
+}
+
+function pickHtml() {
+  const cards = offer.map((o, i) => `<button class="card ${o.c.kind || 'r' + o.tier}" type="button" data-act="pick" data-i="${i}">
+      <strong>${esc(o.c.n)}</strong><em>${KIND_LABEL[o.c.kind] || RARITY[o.tier]}</em><span>${esc(o.c.d(o.k))}</span></button>`).join('');
+  const title = pickIntro ? 'Voorspoedig begin' : `Golf ${run.wave} doorstaan`;
+  const sub = pickIntro ? 'Kies een zegen voor je eerste golf.' : `De spits herstelt ${run.s.fullHeal ? '50%' : '15%'}. Kies een zegen.`;
+  return `<div class="wrap">
+    <h2>${title}</h2><p class="sub">${sub}</p>
+    <div class="cards">${cards}</div>
+    <button class="btn" type="button" data-act="reroll" ${run.rerolls > 0 ? '' : 'disabled'}>Herschikken (${run.rerolls})</button>
+  </div>`;
+}
+
+const fmt = (x, dec = 0) => x.toFixed(dec).replace('.', ',');
+
+/** Current run stats for the pause screen; rows that do nothing in this build are left out. */
+function statsHtml() {
+  const s = run.s;
+  const rows = [
+    run.mod.n && ['Deze golf', run.mod.n],
+    ['Schade per bout', s.noBolts ? 'geen bouten' : fmt(s.dmg, 1)],
+    !s.noBolts && ['Vuursnelheid', fmt(s.rate, 2) + ' /s'],
+    !s.noBolts && ['Bouten per salvo', s.multishot],
+    !s.noBolts && ['Kritieke treffer', fmt(s.crit * 100) + '% · ×' + fmt(s.critMul, 2)],
+    !s.noBolts && ['Bereik', fmt(s.range / 0.42 * 100) + '%'],
+    s.pierce && ['Doorboring', s.pierce],
+    s.chain && ['Bliksem', s.chain + '× · ' + fmt(s.chainMul * 100) + '%'],
+    s.explode && ['Ontploffing', '+' + fmt(s.explode * 100) + '%'],
+    s.orbs && ['Etherbollen', s.orbs + ' · ' + fmt(s.dmg * 1.5 * s.orbPow) + ' schade'],
+    s.orbs && ['Bol omloop', fmt(s.orbSpd * 100) + '%'],
+    s.orbs && ['Bol leven', fmt(orbMaxHp()) + ' · terug ' + fmt(s.orbRespawn) + ' s'],
+    s.orbs && s.orbRegen && ['Bol herstel', fmt(s.orbRegen * 100) + '% /s'],
+    s.orbRadius > 1 && ['Bolbaan', fmt(s.orbRadius * 100) + '%'],
+    s.orbSplash && ['Bol-splijting', fmt(s.orbSplash * 100) + '%'],
+    s.orbCrit && ['Bol kritiek', fmt(s.orbCrit * 100) + '% · ×' + fmt(s.critMul, 2)],
+    s.hasNova && ['Nova', fmt(novaDamage(s)) + ' schade · ' + fmt(s.novaCd, 1) + ' s'],
+    ['Leven', fmt(s.hp) + ' / ' + fmt(s.maxHp)],
+    s.regen && ['Herstel', fmt(s.regen, 1) + ' /s'],
+    s.maxShield && ['Schild', fmt(s.maxShield)],
+    lv('armor') && ['Pantser', '−' + lv('armor') * 5 + '%'],
+    s.slow && ['Tijdsveld', '−' + fmt(s.slow * 100) + '%'],
+    s.leech && ['Zielenoogst', '+' + fmt(s.leech, 1) + ' per kill'],
+    s.vamp && ['Levensroof', fmt(s.vamp * 100) + '% · max. ' + fmt(s.maxHp * VAMP_CAP) + '/s'],
+    s.drain && ['Bloedoffer', '−' + fmt(s.maxHp * s.drain, 1) + ' leven /s'],
+    run.shardMul > 1 && ['Splinters', '×' + fmt(run.shardMul, 2)],
+    s.devour && ['Leegtevreter', '+' + fmt(Math.min(DEVOUR_CAP, s.devour * run.devourKills) * 100) + '% schade'],
+    s.meteor && ['Sterrenregen', 'elke ' + s.meteor + ' s'],
+    s.freezeEvery && ['Tijdstop', 'elke ' + s.freezeEvery + ' s'],
+    run.revives && ['Tweede adem', 'beschikbaar']
+  ].filter(Boolean);
+  return `<div class="label">Huidige kracht</div>
+    <dl class="statgrid">${rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(String(v))}</dd></div>`).join('')}</dl>`;
+}
+
+function pauseHtml() {
+  return `<div class="wrap">
+    <h2>Gepauzeerd</h2>
+    <p class="sub">Golf ${run.wave} · ${run.kills} vijanden vernietigd</p>
+    ${statsHtml()}
+    ${run.build.length ? `<div class="label">Je zegeningen</div><div class="build">${run.build.map(b => `<span>${esc(b)}</span>`).join('')}</div>` : ''}
+    <div class="row">
+      <button class="btn" type="button" data-act="toggle" data-id="music">Klank ${audioPrefs.music ? 'aan' : 'uit'}</button>
+      <button class="btn" type="button" data-act="toggle" data-id="sfx">Effecten ${audioPrefs.sfx ? 'aan' : 'uit'}</button>
+    </div>
+    <div class="row"><button class="btn primary" type="button" data-act="resume">Doorgaan</button><button class="btn" type="button" data-act="quit">Run beëindigen</button></div>
+  </div>`;
+}
+
+function overHtml() {
+  const r = lastResult;
+  return `<div class="wrap">
+    <h2>${r.won && !r.endless ? 'De leegte wijkt' : 'De spits is gevallen'}</h2>
+    <p class="sub">${r.endless ? `Oneindige run op rang ${r.rank}: je hield stand tot golf ${r.wave}.${r.won ? ' Golf 30 telt als overwinning.' : ''}` : r.won ? `Overwinning op Sterrenrang ${r.rank}. Alle ${FINAL_WAVE} golven doorstaan.` : `${r.record ? 'Nieuw record. ' : ''}Je hield stand tot golf ${r.wave} van ${FINAL_WAVE} (rang ${r.rank}).`}</p>
+    ${r.newAch.length ? `<p class="note">Prestatie behaald: ${r.newAch.map(esc).join(', ')}</p>` : ''}
+    ${r.newRank !== null ? `<p class="note">Sterrenrang ${r.newRank} vrijgespeeld: sterkere vijanden, meer splinters.</p>` : ''}
+    <div class="stats"><span>Golf <b>${r.wave}</b></span><span>Vernietigd <b>${r.kills}</b></span><span>Splinters <b>+${r.earned}</b></span></div>
+    ${r.unlocked.length ? `<p class="note">Nieuwe wachter vrijgespeeld: ${r.unlocked.map(esc).join(', ')}</p>` : ''}
+    ${r.build.length ? `<div class="label">Je zegeningen</div><div class="build">${r.build.map(b => `<span>${esc(b)}</span>`).join('')}</div>` : ''}
+    <div class="row"><button class="btn primary" type="button" data-act="start">Nog een run</button><button class="btn" type="button" data-act="tree">Hemelboom (${save.shards} ✦)</button></div>
+    <button class="btn" type="button" data-act="menu">Hoofdmenu</button>
+  </div>`;
+}
+
+ov.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-act]');
+  if (!el || el.disabled) return;
+  const act = el.dataset.act;
+  audioUnlock();
+  if (act === 'start') startRun();
+  else if (act === 'ach') setPhase('ach');
+  else if (act === 'reset') setPhase('reset');
+  else if (act === 'reset-confirm') { resetProgress(); run = null; setPhase('menu'); }
+  else if (act === 'coll') setPhase('coll');
+  else if (act === 'toggle') {
+    const id = el.dataset.id;
+    if (id === 'modsOn' || id === 'endlessOn') { save[id] = !save[id]; persist(); }
+    else if (id === 'music' || id === 'sfx') setAudioPref(id, !audioPrefs[id]);
+    else return;
+    setPhase(phase);
+  }
+  else if (act === 'tree') setPhase('tree');
+  else if (act === 'menu') { run = null; setPhase('menu'); }
+  else if (act === 'cls') { save.cls = el.dataset.id; persist(); setPhase('menu'); }
+  else if (act === 'rank') {
+    save.sel = Math.min(save.rank, Math.max(0, Math.min(save.sel, save.rank) + Number(el.dataset.d)));
+    persist(); setPhase('menu');
+  }
+  else if (act === 'buy') {
+    const m = META.find(x => x.id === el.dataset.id);
+    if (!m || lv(m.id) >= m.max || (m.needs && !lv(m.needs)) || metaLevelRank(m) > save.rank) return;
+    const cost = metaCost(m);
+    if (save.shards < cost) return;
+    save.shards -= cost; save.meta[m.id] = lv(m.id) + 1; persist(); setPhase('tree');
+  }
+  else if (act === 'pick') pickCard(Number(el.dataset.i));
+  else if (act === 'reroll' && phase === 'pick' && run.rerolls > 0) { run.rerolls--; openPick(); }
+  else if (act === 'resume') setPhase('play');
+  else if (act === 'quit') gameOver();
+});
+
+document.getElementById('bPause').addEventListener('click', () => {
+  audioUnlock();
+  if (phase === 'play') setPhase('pause');
+  else if (phase === 'pause') setPhase('play');
+});
+const bSpeed = document.getElementById('bSpeed');
+const SPEEDS = [1, 2, 3, 5, 10];
+bSpeed.addEventListener('click', () => {
+  speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
+  bSpeed.textContent = speed + '×';
+});
+
+cv.addEventListener('pointerdown', ev => {
+  audioUnlock();
+  if (phase !== 'play') return;
+  const r = cv.getBoundingClientRect();
+  nova(ev.clientX - r.left, ev.clientY - r.top);
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && phase === 'play') setPhase('pause'); });
+
+/* ---------- HUD ---------- */
+const hWave = document.getElementById('hWave'), hHp = document.getElementById('hHp'), hSh = document.getElementById('hSh');
+const hNova = document.getElementById('hNova'), hHpTxt = document.getElementById('hHpTxt'), hNovaTxt = document.getElementById('hNovaTxt');
+function updateHud() {
+  if (!run) { hWave.textContent = 'Golf –'; hHp.style.width = '100%'; hSh.style.width = '0%'; hHpTxt.textContent = '–'; hNovaTxt.textContent = ''; hNova.style.width = '0%'; return; }
+  const s = run.s;
+  hWave.textContent = run.mode.endless ? 'Golf ' + run.wave + ' ∞' : 'Golf ' + run.wave + '/' + FINAL_WAVE;
+  hHp.style.width = (s.hp / s.maxHp * 100).toFixed(1) + '%';
+  hSh.style.width = (s.maxShield ? s.shield / s.maxHp * 100 : 0).toFixed(1) + '%';
+  hHpTxt.textContent = Math.ceil(s.hp) + ' / ' + Math.round(s.maxHp) + (s.shield > 0.5 ? ' +' + Math.round(s.shield) : '');
+  hNova.style.width = s.hasNova ? ((1 - run.novaT / s.novaCd) * 100).toFixed(1) + '%' : '0%';
+  hNovaTxt.textContent = !s.hasNova ? '' : run.mod.noNova ? 'Geen Nova' : run.novaT > 0 ? 'Nova ' + run.novaT.toFixed(1) + ' s' : 'Nova gereed';
+}
+
+/* ---------- Rendering ---------- */
+function polygon(x, y, r, sides, rot) {
+  ctx.beginPath();
+  for (let i = 0; i < sides; i++) {
+    const a = rot + i * Math.PI * 2 / sides;
+    ctx[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * r, y + Math.sin(a) * r);
+  }
+  ctx.closePath();
+}
+
+function drawTower(t) {
+  const r = 18 * U;
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 3);
+  glow.addColorStop(0, 'rgba(232,193,112,.35)'); glow.addColorStop(1, 'rgba(232,193,112,0)');
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(cx, cy, r * 3, 0, Math.PI * 2); ctx.fill();
+  polygon(cx, cy, r, 6, Math.PI / 6);
+  ctx.fillStyle = run && run.hurtT > 0 ? '#e2566b' : '#2a2140'; ctx.fill();
+  ctx.lineWidth = 2 * U; ctx.strokeStyle = '#e8c170'; ctx.stroke();
+  polygon(cx, cy, r * 0.55, 4, t * 0.8);
+  ctx.fillStyle = '#e8c170'; ctx.fill();
+  if (run && run.s.shield > 0.5) {
+    ctx.strokeStyle = `rgba(95,211,224,${0.3 + 0.5 * run.s.shield / run.s.maxShield})`;
+    ctx.lineWidth = 2 * U; ctx.beginPath(); ctx.arc(cx, cy, r + 7 * U, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+
+function drawFoe(e) {
+  const r = e.r * U;
+  ctx.fillStyle = e.fl > 0 ? '#ffffff' : e.c;
+  if (e.shape === 'tri') polygon(e.x, e.y, r, 3, e.spin);
+  else if (e.shape === 'dia') polygon(e.x, e.y, r, 4, Math.atan2(cy - e.y, cx - e.x));
+  else if (e.shape === 'sq') polygon(e.x, e.y, r, 4, Math.PI / 4);
+  else if (e.shape === 'boss') polygon(e.x, e.y, r, 8, e.spin * 0.4);
+  else { ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2); }
+  ctx.fill();
+  if (e.shape === 'boss') { ctx.fillStyle = '#0d0b1a'; ctx.beginPath(); ctx.arc(e.x, e.y, r * 0.4, 0, Math.PI * 2); ctx.fill(); }
+  if (e.variant === 'bulwark') {
+    const a = Math.atan2(cy - e.y, cx - e.x);
+    ctx.strokeStyle = '#e8c170'; ctx.lineWidth = 5 * U;
+    ctx.beginPath(); ctx.arc(e.x, e.y, r + 7 * U, a - 1.1, a + 1.1); ctx.stroke();
+  }
+  if ((e.type === 'golem' || e.type === 'boss') && e.hp < e.maxHp) {
+    const bw = r * 2;
+    ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(e.x - r, e.y - r - 7 * U, bw, 3 * U);
+    ctx.fillStyle = '#e2566b'; ctx.fillRect(e.x - r, e.y - r - 7 * U, bw * Math.max(0, e.hp / e.maxHp), 3 * U);
+  }
+}
+
+function draw(t) {
+  ctx.drawImage(starCv, 0, 0, w, h);
+  if (!run) { drawTower(t); return; }
+  const s = run.s;
+
+  if (run.freezeT > 0) { ctx.fillStyle = 'rgba(150,200,255,.08)'; ctx.fillRect(0, 0, w, h); }
+  for (const f of run.burns || []) {
+    ctx.fillStyle = `rgba(255,140,60,${0.12 * f.t / NOVA_BURN_TIME + 0.04})`;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.fill();
+  }
+  if (s.slow) {
+    ctx.fillStyle = 'rgba(95,211,224,.06)';
+    ctx.beginPath(); ctx.arc(cx, cy, 0.26 * M, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.setLineDash([3 * U, 7 * U]); ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(232,193,112,.16)';
+  ctx.beginPath(); ctx.arc(cx, cy, s.range * M, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+
+  for (const e of run.foes) drawFoe(e);
+
+  ctx.strokeStyle = '#f3d48f'; ctx.lineWidth = 2.5 * U; ctx.lineCap = 'round';
+  for (const b of run.bolts) {
+    const v = Math.hypot(b.vx, b.vy) || 1;
+    ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx / v * 10 * U, b.y - b.vy / v * 10 * U); ctx.stroke();
+  }
+
+  if (s.orbs) {
+    const orR = Math.max(0.15 * M, 18 * U + 26 * U) * s.orbRadius;
+    const maxHp = orbMaxHp();
+    for (let i = 0; i < s.orbs; i++) {
+      const orb = run.orbState[i];
+      if (!orb) continue;
+      const a = run.orbA + i * Math.PI * 2 / s.orbs;
+      const ox = cx + Math.cos(a) * orR, oy = cy + Math.sin(a) * orR, r = 7 * U * s.orbSize;
+      if (orb.down > 0) {
+        // Broken orb: faint outline that fills back in as it reforms.
+        ctx.strokeStyle = 'rgba(95,211,224,.35)'; ctx.lineWidth = 1.5 * U;
+        ctx.beginPath(); ctx.arc(ox, oy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - orb.down / s.orbRespawn)); ctx.stroke();
+        continue;
+      }
+      const frac = Math.max(0, orb.hp / maxHp);
+      ctx.globalAlpha = 0.45 + 0.55 * frac;
+      ctx.fillStyle = orb.hitT > 0 ? '#ffffff' : '#5fd3e0';
+      ctx.beginPath(); ctx.arc(ox, oy, r, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      if (frac < 1) {
+        ctx.strokeStyle = frac > 0.35 ? '#e8c170' : '#e2566b'; ctx.lineWidth = 2 * U;
+        ctx.beginPath(); ctx.arc(ox, oy, r + 3 * U, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); ctx.stroke();
+      }
+    }
+  }
+
+  drawTower(t);
+
+  for (const f of run.fx) {
+    const k = f.life / f.max;
+    if (f.k === 'flash') {
+      const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r);
+      g.addColorStop(0, `rgba(255,236,180,${0.55 * k})`);
+      g.addColorStop(0.7, `rgba(232,193,112,${0.22 * k})`);
+      g.addColorStop(1, 'rgba(232,193,112,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.fill();
+    } else if (f.k === 'meteor') {
+      // Streak that shrinks toward the impact point as the effect fades.
+      const p = 1 - k;
+      const hx = f.x1 + (f.x2 - f.x1) * Math.min(1, p * 2.5), hy = f.y1 + (f.y2 - f.y1) * Math.min(1, p * 2.5);
+      ctx.strokeStyle = `rgba(255,176,112,${k})`; ctx.lineWidth = 5 * U; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(f.x1 + (hx - f.x1) * 0.4, f.y1 + (hy - f.y1) * 0.4); ctx.lineTo(hx, hy); ctx.stroke();
+      ctx.fillStyle = `rgba(255,236,200,${k})`; ctx.beginPath(); ctx.arc(hx, hy, 6 * U, 0, Math.PI * 2); ctx.fill();
+    } else if (f.k === 'beam') {
+      ctx.strokeStyle = `rgba(255,224,150,${k})`; ctx.lineWidth = 3 * U;
+      ctx.beginPath(); ctx.moveTo(f.x1, f.y1); ctx.lineTo(f.x2, f.y2); ctx.stroke();
+    } else if (f.k === 'ring') {
+      ctx.strokeStyle = `rgba(${f.c},${k})`; ctx.lineWidth = (f.w || 2) * U;
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r1 - (f.r1 - f.r0) * k, 0, Math.PI * 2); ctx.stroke();
+    } else if (f.k === 'num') {
+      ctx.globalAlpha = Math.min(1, k * 1.5);
+      ctx.fillStyle = f.col || '#5fd3e0'; ctx.textAlign = 'center';
+      ctx.font = `600 ${Math.round((f.big ? 15 : 11) * U)}px "IBM Plex Mono", ui-monospace, monospace`;
+      ctx.fillText(f.text, f.x, f.y - (1 - k) * 18 * U);
+      ctx.globalAlpha = 1;
+    } else if (f.k === 'zap') {
+      ctx.strokeStyle = `rgba(190,230,255,${k})`; ctx.lineWidth = 2 * U;
+      ctx.beginPath(); ctx.moveTo(f.x1, f.y1);
+      for (let i = 1; i < 4; i++) {
+        const p = i / 4;
+        ctx.lineTo(f.x1 + (f.x2 - f.x1) * p + (Math.random() - 0.5) * 12 * U, f.y1 + (f.y2 - f.y1) * p + (Math.random() - 0.5) * 12 * U);
+      }
+      ctx.lineTo(f.x2, f.y2); ctx.stroke();
+    }
+  }
+  for (const p of run.parts) {
+    ctx.globalAlpha = p.life / p.max; ctx.fillStyle = p.c;
+    ctx.fillRect(p.x - 1.5 * U, p.y - 1.5 * U, 3 * U, 3 * U);
+  }
+  ctx.globalAlpha = 1;
+
+  if (run.banner) {
+    ctx.globalAlpha = Math.min(1, run.banner.t / 0.4);
+    ctx.fillStyle = '#e8c170'; ctx.textAlign = 'center';
+    ctx.font = `${Math.round(26 * U)}px "Marcellus SC", Georgia, serif`;
+    ctx.fillText(run.banner.text, cx, cy - 0.3 * M);
+    if (run.banner.sub) {
+      ctx.fillStyle = '#ebe6f6';
+      ctx.font = `${Math.round(14 * U)}px "Barlow", system-ui, sans-serif`;
+      ctx.fillText(run.banner.sub, cx, cy - 0.3 * M + 24 * U, w - 32);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* ---------- Loop ---------- */
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (phase === 'play' && run) {
+    for (let i = 0; i < speed && phase === 'play'; i++) step(dt);
+    if (run) decayFx(dt);
+    updateHud();
+  }
+  draw(now / 1000);
+  requestAnimationFrame(frame);
+}
+
+resize();
+setPhase('menu');
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
